@@ -5,7 +5,7 @@
 
 -- Raw data tables
 
-  -- Table 1
+  -- Table 1 (Data warehouse)
   
     CREATE TABLE  [EAT_Reporting_BSOL].[OF].[OF2_IndicatorSQLData] (
 	
@@ -24,12 +24,11 @@
 	   , [Ethnicity] VARCHAR(100)
 	   , [CreationDate] DATE
 	   , [ValueType] VARCHAR(100)
-	   , [WorkingProject] VARCHAR(10)
 	   , [Source] VARCHAR(10)
 	   )
 
 
-  -- Table 2
+  -- Table 2 (API)
   
     CREATE TABLE  [EAT_Reporting_BSOL].[OF].[OF2_IndicatorAPIData] (
 	
@@ -48,11 +47,10 @@
 	   , [Ethnicity] VARCHAR(100)
 	   , [CreationDate] DATE
 	   , [ValueType] VARCHAR(100)
-	   , [WorkingProject] VARCHAR(10)
 	   , [Source] VARCHAR(10)
 	   )
 
-  -- Table 3
+  -- Table 3 (SharePoint)
   
     CREATE TABLE  [EAT_Reporting_BSOL].[OF].[OF2_IndicatorSharePointData] (
 	
@@ -71,11 +69,10 @@
 	   , [Ethnicity] VARCHAR(100)
 	   , [CreationDate] DATE
 	   , [ValueType] VARCHAR(100)
-	   , [WorkingProject] VARCHAR(10)
 	   , [Source] VARCHAR(10)
 	   )
 
-  -- Table 4
+  -- Table 4 (Other)
   
     CREATE TABLE  [EAT_Reporting_BSOL].[OF].[OF2_IndicatorOtherData] (
 	
@@ -94,7 +91,6 @@
 	   , [Ethnicity] VARCHAR(100)
 	   , [CreationDate] DATE
 	   , [ValueType] VARCHAR(100)
-	   , [WorkingProject] VARCHAR(10)
 	   , [Source] VARCHAR(10)
 	   )
 
@@ -119,7 +115,6 @@
 	   , [EthnicityCode] VARCHAR(10)
 	   , [CreationDate] DATE
 	   , [ValueTypeCode] VARCHAR(10)
-	   , [WorkingProjectCode] VARCHAR(10)
 	   , [SourceCode] VARCHAR(10)
 	   )
 	
