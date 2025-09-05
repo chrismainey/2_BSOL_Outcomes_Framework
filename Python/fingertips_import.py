@@ -4,7 +4,8 @@ import io
 import logging
 from tqdm import tqdm
 from collections import defaultdict
-import concurrent.futures
+import asyncio
+import aiohttp
 
 # Set up logging
 logging.basicConfig(
@@ -13,15 +14,14 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None, max_workers=8):
+def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None, max_concurrent=8):
     """
     Downloads indicator data from the Fingertips API for one or more indicator IDs.
-    Optionally filters by area type IDs and area codes.
-    Logs errors and missing data to 'ftp_import_log.log'.
-    Displays a progress bar and prints a log summary at the end.
+    Batches all indicator IDs into a single call per area type/area code.
+    Uses asynchronous requests for speed.
     Returns a combined pandas DataFrame of all successful downloads.
     """
-    base_url = "https://fingertips.phe.org.uk/api/all_data/json/by_indicator_id"
+    base_url = "https://fingertips.phe.org.uk/api/all_data/csv/by_indicator_id"
     all_dataframes = []
 
     # Track summary info
@@ -29,9 +29,10 @@ def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None
     missing_log = defaultdict(list)
     error_log = defaultdict(list)
 
-    # Ensure indicator_ids is a list
+    # Ensure indicator_ids is a list and comma-separated string for batching
     if isinstance(indicator_ids, (int, str)):
         indicator_ids = [indicator_ids]
+    indicator_id_str = ",".join(str(i) for i in indicator_ids)
 
     # If no area types provided, fetch all available
     if area_type_ids is None:
@@ -49,87 +50,75 @@ def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None
     if area_codes is not None and isinstance(area_codes, str):
         area_codes = [area_codes]
 
-    # Prepare all combinations
+    # Prepare all combinations (batching indicator IDs)
     tasks = []
     if area_codes:
-        for indicator_id in indicator_ids:
-            for area_type_id in area_type_ids:
-                for area_code in area_codes:
-                    tasks.append((indicator_id, area_type_id, area_code))
+        for area_type_id in area_type_ids:
+            for area_code in area_codes:
+                tasks.append((indicator_id_str, area_type_id, area_code))
     else:
-        for indicator_id in indicator_ids:
-            for area_type_id in area_type_ids:
-                tasks.append((indicator_id, area_type_id, None))
+        for area_type_id in area_type_ids:
+            tasks.append((indicator_id_str, area_type_id, None))
 
-    def fetch_data(task):
-        indicator_id, area_type_id, area_code = task
+    async def fetch_data(session, sem, task):
+        indicator_id_str, area_type_id, area_code = task
         if area_code:
-            url = f"{base_url}?indicator_ids={indicator_id}&area_type_id={area_type_id}&area_code={area_code}"
+            url = f"{base_url}?indicator_ids={indicator_id_str}&area_type_id={area_type_id}&area_code={area_code}"
         else:
-            url = f"{base_url}?indicator_ids={indicator_id}&area_type_id={area_type_id}"
-        try:
-            response = requests.get(url)
-            response.raise_for_status()
-            data = response.json()
-            # The JSON response is usually a list of dicts, or an object with a key containing the list
-            # Adjust this line if the structure is different
-            if not data or (isinstance(data, dict) and not data.get("Data")):
+            url = f"{base_url}?indicator_ids={indicator_id_str}&area_type_id={area_type_id}"
+        async with sem:
+            try:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        raise Exception(f"HTTP {response.status}")
+                    text = await response.text()
+                    if not text.strip() or text.strip().startswith("No data"):
+                        if area_code:
+                            msg = f"{indicator_id_str} not available at area type {area_type_id} for area code {area_code}"
+                            missing_log[indicator_id_str].append((area_type_id, area_code))
+                        else:
+                            msg = f"{indicator_id_str} is not available at area type {area_type_id}"
+                            missing_log[indicator_id_str].append(area_type_id)
+                        logging.warning(msg)
+                        return None
+                    df = pd.read_csv(io.StringIO(text), dtype=str, low_memory=False)
+                    if df.empty:
+                        if area_code:
+                            msg = f"{indicator_id_str} not available at area type {area_type_id} for area code {area_code}"
+                            missing_log[indicator_id_str].append((area_type_id, area_code))
+                        else:
+                            msg = f"{indicator_id_str} is not available at area type {area_type_id}"
+                            missing_log[indicator_id_str].append(area_type_id)
+                        logging.warning(msg)
+                        return None
+                    if area_code:
+                        msg = f"Successfully retrieved indicators {indicator_id_str} for area type {area_type_id} and area code {area_code}"
+                        success_log.append((indicator_id_str, area_type_id, area_code))
+                    else:
+                        msg = f"Successfully retrieved indicators {indicator_id_str} for area type {area_type_id}"
+                        success_log.append((indicator_id_str, area_type_id))
+                    logging.info(msg)
+                    return df
+            except Exception as e:
                 if area_code:
-                    msg = f"{indicator_id} not available at area type {area_type_id} for area code {area_code}"
-                    missing_log[indicator_id].append((area_type_id, area_code))
+                    msg = f"Error retrieving indicators {indicator_id_str} for area type {area_type_id} and area code {area_code}: {e}"
+                    error_log[indicator_id_str].append((area_type_id, area_code, str(e)))
                 else:
-                    msg = f"{indicator_id} is not available at area type {area_type_id}"
-                    missing_log[indicator_id].append(area_type_id)
-                logging.warning(msg)
+                    msg = f"Error retrieving indicators {indicator_id_str} for area type {area_type_id}: {e}"
+                    error_log[indicator_id_str].append((area_type_id, str(e)))
+                logging.error(msg)
                 return None
-            # Try to extract the data list
-            if isinstance(data, dict) and "Data" in data:
-                records = data["Data"]
-            else:
-                records = data
-            if not records:
-                if area_code:
-                    msg = f"{indicator_id} not available at area type {area_type_id} for area code {area_code}"
-                    missing_log[indicator_id].append((area_type_id, area_code))
-                else:
-                    msg = f"{indicator_id} is not available at area type {area_type_id}"
-                    missing_log[indicator_id].append(area_type_id)
-                logging.warning(msg)
-                return None
-            df = pd.DataFrame(records)
-            if df.empty:
-                if area_code:
-                    msg = f"{indicator_id} not available at area type {area_type_id} for area code {area_code}"
-                    missing_log[indicator_id].append((area_type_id, area_code))
-                else:
-                    msg = f"{indicator_id} is not available at area type {area_type_id}"
-                    missing_log[indicator_id].append(area_type_id)
-                logging.warning(msg)
-                return None
-            if area_code:
-                msg = f"Successfully retrieved indicator {indicator_id} for area type {area_type_id} and area code {area_code}"
-                success_log.append((indicator_id, area_type_id, area_code))
-            else:
-                msg = f"Successfully retrieved indicator {indicator_id} for area type {area_type_id}"
-                success_log.append((indicator_id, area_type_id))
-            logging.info(msg)
-            return df
-        except Exception as e:
-            if area_code:
-                msg = f"Error retrieving indicator {indicator_id} for area type {area_type_id} and area code {area_code}: {e}"
-                error_log[indicator_id].append((area_type_id, area_code, str(e)))
-            else:
-                msg = f"Error retrieving indicator {indicator_id} for area type {area_type_id}: {e}"
-                error_log[indicator_id].append((area_type_id, str(e)))
-            logging.error(msg)
-            return None
 
-    # Parallel execution with progress bar
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        for df in tqdm(executor.map(fetch_data, tasks), total=len(tasks), desc="Fetching data"):
-            if df is not None:
-                all_dataframes.append(df)
+    async def main():
+        sem = asyncio.Semaphore(max_concurrent)
+        async with aiohttp.ClientSession() as session:
+            coros = [fetch_data(session, sem, task) for task in tasks]
+            for f in tqdm(asyncio.as_completed(coros), total=len(coros), desc="Fetching data"):
+                df = await f
+                if df is not None:
+                    all_dataframes.append(df)
+
+    asyncio.run(main())
 
     # Print log summary
     print("\n📋 Log Summary:")
@@ -140,13 +129,13 @@ def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None
     if missing_log:
         print("\nMissing combinations:")
         for ind, areas in missing_log.items():
-            print(f"  Indicator {ind} missing at area types/codes: {areas}")
+            print(f"  Indicator(s) {ind} missing at area types/codes: {areas}")
 
     if error_log:
         print("\nErrors:")
         for ind, errors in error_log.items():
             for err in errors:
-                print(f"  Indicator {ind} at {err}")
+                print(f"  Indicator(s) {ind} at {err}")
 
     # Return combined DataFrame
     if all_dataframes:
