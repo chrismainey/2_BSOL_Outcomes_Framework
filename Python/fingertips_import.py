@@ -21,7 +21,7 @@ def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None
     Displays a progress bar and prints a log summary at the end.
     Returns a combined pandas DataFrame of all successful downloads.
     """
-    base_url = "https://fingertips.phe.org.uk/api/all_data/csv/by_indicator_id"
+    base_url = "https://fingertips.phe.org.uk/api/all_data/json/by_indicator_id"
     all_dataframes = []
 
     # Track summary info
@@ -70,8 +70,10 @@ def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None
         try:
             response = requests.get(url)
             response.raise_for_status()
-            # Only parse if data is present (avoid empty DataFrames)
-            if response.text.strip() == "" or response.text.strip().startswith("No data"):
+            data = response.json()
+            # The JSON response is usually a list of dicts, or an object with a key containing the list
+            # Adjust this line if the structure is different
+            if not data or (isinstance(data, dict) and not data.get("Data")):
                 if area_code:
                     msg = f"{indicator_id} not available at area type {area_type_id} for area code {area_code}"
                     missing_log[indicator_id].append((area_type_id, area_code))
@@ -80,7 +82,21 @@ def get_fingertips_indicators(indicator_ids, area_type_ids=None, area_codes=None
                     missing_log[indicator_id].append(area_type_id)
                 logging.warning(msg)
                 return None
-            df = pd.read_csv(io.StringIO(response.text), dtype=str, low_memory=False)
+            # Try to extract the data list
+            if isinstance(data, dict) and "Data" in data:
+                records = data["Data"]
+            else:
+                records = data
+            if not records:
+                if area_code:
+                    msg = f"{indicator_id} not available at area type {area_type_id} for area code {area_code}"
+                    missing_log[indicator_id].append((area_type_id, area_code))
+                else:
+                    msg = f"{indicator_id} is not available at area type {area_type_id}"
+                    missing_log[indicator_id].append(area_type_id)
+                logging.warning(msg)
+                return None
+            df = pd.DataFrame(records)
             if df.empty:
                 if area_code:
                     msg = f"{indicator_id} not available at area type {area_type_id} for area code {area_code}"

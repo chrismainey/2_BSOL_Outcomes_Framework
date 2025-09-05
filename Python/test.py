@@ -1,4 +1,5 @@
-from fingertips_import import get_fingertips_indicators 
+from fingertips_import import get_fingertips_indicators
+from datetime import datetime
 import sqlalchemy as sql
 import pyodbc
 import pandas as pd
@@ -47,17 +48,21 @@ of_25 = [212, 219, 262, 280, 90647, 253, 90933, 93790, 91215,
 # 7 GP, 204 PCN, 221 ICB
 area_ids = [204, 221]
 
+# INdex file with date for test
+today_date = datetime.now().strftime('%Y%m%d')
+
+
 # Fetch data, no GP
 data = get_fingertips_indicators(of_25, area_ids, area_codes)
 
+data.to_csv(f'./data/test_data_noGP{today_date}.csv', index=False)
+
 # Fetch data, no GP
-data_GP = get_fingertips_indicators(of_25, 7, gp_codes)
+data_GP = get_fingertips_indicators(of_25, [7], gp_codes)
+
+data_GP.to_csv(f'./data/test_data_GP{today_date}.csv', index=False)
 
 # Union together
 combined = pd.concat([data, data_GP], ignore_index=True)
-
-
-# INdex file with date for test
-today_date = datetime.now().strftime('%Y%m%d')
 
 combined.to_csv(f'./data/test_data_{today_date}.csv', index=False)
