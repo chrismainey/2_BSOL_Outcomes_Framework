@@ -1,0 +1,2871 @@
+---
+title: "Outcome Framework Process Documentation"
+date: "`r Sys.Date()`"
+author: Siti Hassan
+date-format: "D MMMM YYYY"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-expand: true
+    toc-location: left
+    toc-title: Table of Contents
+    number-sections: true
+    number-depth: 4
+    code-fold: true
+    code-summary: "Show code"
+    embed-resources: true
+    standalone: true
+    link-external-icon: true
+    link-external-newwindow: true
+    citations-hover: true
+    footnotes-hover: true
+    callout-appearance: simple
+    callout-collapse: true
+    cap-location: bottom
+    title-block-banner: '#005EB8'
+    backgroundcolor: '#f0f4f5'
+    highlight-style: tango
+project:
+    type: website
+    output-dir: Documentation
+execute:
+  echo: true          
+  cache: true
+  warning: false
+  error: false
+  freeze: auto        
+editor: visual
+---
+
+```{r}
+#| label: setup-db
+#| echo: false
+library(DBI)
+library(odbc)
+sql_connection <- dbConnect(
+  odbc(),
+  Driver = "SQL Server",
+  Server = "MLCSU-BI-SQL",
+  Database = "EAT_Reporting_BSOL",
+  Trusted_Connection = "True"
+)
+
+```
+
+# Introduction {#sec-introduction}
+
+This documentation outlines the steps for building a dataset of indicators that draw from multiple sources, with the purpose of monitoring patient outcomes across several domains, including **Cancer, Frailty and End of Life, Cardiovascular Health, Mental Health, Respiratory Health, Mortality, Children and Young People, Prevention,** and **Other**.
+
+Additionally, this dataset will support monitoring variations across **geographic levels** such as **PCN, ICN, Ward, Locality (resident),** and **Local Authority District,** as well as **demographic groups**. This will allow us to assess inequalities by ethnicity and deprivation. There are approximately 120 indicators across 7 domains, and each indicator has its own requirements for dataset construction. This documentation will guide you through the steps involved in building an indicator, based on the conditions specified in the metadata file, which can be found [here](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=loJrNj).
+
+To enable the calculation of **rates, percentages, ratios, life expectancy, and other outcome measures** across various geographic levels and demographic groups, the dataset includes the following key components:
+
+-   **Indicator metadata**: IDs, start and end dates of the indicator reporting period.
+
+-   **Numerator**: The count of events or the subset of the total population who experienced the outcome of interest.
+
+-   **Denominator**: Total population against which the numerator is measured.
+
+-   **Indicator value**: Calculated measures such as crude rates, directly age standardised rates (DASR), percentages, ratios, life expectancy, and other value types.
+
+-   **Confidence intervals**: Lower and upper 95% confidence bounds for the indicator value.
+
+-   **Demographic dimensions**: Breakdown by IMD quintile, age group, sex, and ethnicity.
+
+-   **Geographic dimensions**: Breakdown by PCN, ICB for GP-level data, and Ward, Locality (resident), and Local Authority District (LAD) for resident population data.
+
+-   **Additional metadata**: For example, `creation_date` (when the indicator was created), `source_code` (the source from which the indicator was derived), and `value_type_code` (the type of measure).
+
+The dataset is structured using a **Fact--Dimension model**, where reference (dimension) tables are linked to the central fact table that stores the indicator values.
+
+For an example of the underlying data structure, you can explore the following table:
+
+``` sql
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+```
+
+# Start Here {#sec-start-here}
+
+Begin by identifying the population type for the indicator in the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=loJrNj).
+
+## A) Population type = Census {#sec-a-population-type--census}
+
+If the population type is **Census**, the population (denominator) for this indicator must be derived from Census population estimates to calculate rates or other value types.
+
+Therefore, move to [**Chapter 2: Building Indicators Without Pre-defined Denominators**](#chapter2)**.**
+
+*Examples:* indicators from the **SUS** and **Mortality** datasets. These indicators **do not have predefined denominators** and use Census estimates to derive the population.
+
+## B) Population type = GP registered and a denominator column exists {#sec-b-population-type--gp-registered-and-a-denominator-column-exists}
+
+If the population type is **GP registered**, identify whether the data source has a **denominator column**. For example, **QOF**, **CVD Prevent**, and **Fingertips** provide a denominator column in their datasets.
+
+Therefore, proceed to [**Chapter 1: Building Indicators With Pre-defined Denominators**](#chapter1)**.**
+
+## C) Population type ≠ Census and no denominator column exists {#sec-c-population-type-not-census-and-no-denominator-column-exists}
+
+If the population type is **not Census** and there is **no denominator column** in the data source, proceed to [**Chapter 3: Building Indicators with Derived Denominators**.](#chapter3)This chapter is designed for building indicators where the data source is at the patient-level, allowing us to derive the numerator from the dataset. In addition, the denominator can also be derived from the same data source. For example, the **NDA** dataset.
+
+All of these datasets will feed into the **Outcome Framework (OF) dataset**: `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`
+
+## Flowchart {#sec-flowchart}
+
+```{mermaid}
+
+flowchart TB
+A((Start))
+B{"Population Type = Census?"}
+C{"Denominator column in data?"}
+
+L1(["Chapter 2: Building Indicators without Pre-defined Denominator"])
+L2(["Example(s): SUS, Mortality"])
+L3(["Insert data into final table [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data] with denominator = NULL "])
+L4(["OF dataset"])
+
+M1(["Chapter 1: Building Indicators with Pre-defined Denominator"])
+M2(["Example(s): QOF, CVD Prevent, Fingertips"])
+M3(["Insert data into final table [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data] with denominator populated"])
+
+R1(["Chapter 3: Building Indicators with Derived Denominator"])
+R2(["Example(s): NDA"])
+R3(["Insert data into final table [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data] with denominator populated"])
+
+A --> B
+B -- "Yes" --> L1
+B -- "No" --> C
+C -- "Yes" --> M1
+C -- "No" --> R1
+R1 --> R2
+R2 --> R3
+R3 --> L4
+L1 --> L2
+L2 --> L3
+L3 --> L4
+M1 --> M2
+M2 --> M3
+M3 --> L4
+
+classDef start fill:#A5D6A7,stroke:#2E7D32,stroke-width:1px,color:#000
+classDef decision1 fill:#D1C4E9,stroke:#6A1B9A,stroke-width:1px,color:#000
+classDef decision2 fill:#EF9A9A,stroke:#C62828,stroke-width:1px,color:#000
+classDef step fill:#BBDEFB,stroke:#1E88E5,stroke-width:1px,color:#000
+classDef orange fill:#FFD180,stroke:#F57C00,stroke-width:1px,color:#000
+classDef green fill:#C8E6C9,stroke:#388E3C,stroke-width:1px,color:#000
+classDef grey fill:#E0E0E0,stroke:#616161,stroke-width:1px,color:#000
+
+class A start
+class B decision1
+class C decision2
+class L1,M1,R1 step
+class L2,M2,R2 orange
+class L3,M3,R3 green
+class L4 grey
+
+```
+
+# Chapter 1: Building Indicators (with Pre-Defined Denominator) {#chapter1}
+
+The following steps will guide you through building OF indicators with pre-defined denominators - i.e., when the data source already includes a denominator column. Examples include indicators from **QOF**, **CVD Prevent**, and **Fingertips**.
+
+First, create a new SQL script per indicator and name the file as follows:
+
+**`ID_{indicator_id}_{indicator_short_name}.sql`**
+
+Save the script in the corresponding data source folder within the Outcome Framework Rebuild path:
+
+**`02_Routine > BSOLBI_0033_Outcome_Framework_Rebuild > SQL`**
+
+## Create staging tables {#ch1-sec-create-staging-tables}
+
+We begin by creating two staging tables to store data at different steps:
+
+-   One table stores the processed indicator data, which will be used to update the final OF dataset;
+
+-   The other stores data containing all required columns, enabling us to generate the processed indicator data for the final OF dataset.
+
+### Staging table for processed indicator data {#ch1-sec-staging-table-for-processed-indicator-data}
+
+This table stores the processed indicator data for each required geography level and demographic split. The data will then be used to update the final indicator data table.
+
+It must therefore include all columns defined in the specified data structure of the final table (i.e., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+DROP TABLE IF EXISTS #staging_QOF_data;
+
+CREATE TABLE #staging_QOF_data
+(
+    indicator_id       INT,
+    start_date         DATE,
+    end_date           DATE,
+    numerator          FLOAT,
+    denominator        FLOAT,
+    indicator_value    FLOAT,
+    lower_ci95         FLOAT,
+    upper_ci95         FLOAT,
+    imd_code           INT,
+    aggregation_id     VARCHAR(20), -- PCN/ICB codes are in VARCHAR, will convert to INT later
+    age_group_code     INT,
+    sex_code           INT,
+    ethnicity_code     INT,
+    creation_date      DATE,
+    value_type_code    INT,
+    source_code        INT
+);
+
+```
+
+### Temporary table for GP-level raw data {#ch1-sec-temporary-table-for-gp-level-raw-data}
+
+Indicators with a pre-defined denominator are at the GP level. Therefore, we need a temporary table to store data at this level, which can then be used to aggregate data to higher levels (i.e., PCNs and ICB).
+
+Create this temporary table to store the lowest-level data---at the GP level---which will subsequently be used to aggregate data to higher levels such as PCN and ICB.
+
+It must include the columns required to build the indicator data at the chosen geography level and by demographic split, so that the results can be stored in the staging table created in [Step 3.1.1](#ch1-sec-staging-table-for-processed-indicator-data).
+
+This table also requires additional columns, such as GP practice codes and their corresponding PCN codes, to enable grouping at higher levels.
+
+These are the columns required for the GP-level data:
+
+-   `indicator_id`
+
+-   `start_date` and `end_date`
+
+-   `numerator`
+
+-   `denominator`
+
+-   `indicator_value`
+
+-   `lower_ci9` and `upper_ci95`
+
+-   `imd`, `age_group`, `sex`, and `ethnicity`
+
+-   `creation_date`
+
+-   `value_type`
+
+-   `source`
+
+-   `GP`
+
+-   `PCN`
+
+## Build GP-level data {#ch1-sec-build-gp-level-data}
+
+From this point onwards, the steps will outline how to build GP-level data in the table created in [Step 3.1.2](#ch1-sec-temporary-table-for-gp-level-raw-data), which will be used to aggregate data to higher levels (i.e., **PCN** and **ICB**).
+
+If the data source does not contain GP-level data but instead provides higher-level data such as PCN or ICB, you can continue building the dataset at the available level (e.g., PCN). The required columns remain the same; the only difference is that the lowest geography level will be PCN, and the data will then be aggregated to the ICB level.
+
+Similarly, if the data source only provides ICB-level data, you can continue building the dataset as normal with all the required columns, without the need for aggregation since ICB is already the highest level.
+
+### Identify the indicator's year type {#ch1-sec-identify-the-indicators-year-type}
+
+Identify the year type of the indicator in the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file.
+
+If the year type is either **Financial year** or **Calendar year**, use the following reference table and go to [Step 3.2.1.1](#ch1-sec-get-start-and-end-dates) to update the `start_date` and `end_date` of the indicator data.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [Reference].[dbo].[DIM_tbDate]
+```
+
+Otherwise, update the `start_date`and `end_date` based on how the time period in the data source is structured.
+
+#### Get Start and End Dates {#ch1-sec-get-start-and-end-dates}
+
+The temporary GP-level data must have the `start_date` and `end_date` columns, which correspond to the start and end of the reporting period for that indicator.
+
+You can use the Date reference table above to obtain the start and end dates by joining on the matching data column.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+SELECT   
+  T2.[HCSStartOfYearDate]   AS start_date
+  ,T2.[HCSEndOfYearDate]    AS end_date
+INTO    #gp_data
+FROM    [AnalystGlobal].[Performance].[QOFIndicatorsAndPrevalence] AS T1
+INNER JOIN    [Reference].[dbo].[DIM_tbDate] AS T2
+    ON        T1.FinancialYear = T2.HCSFinancialYearName
+GROUP BY      
+  T2.[HCSStartOfYearDate]  
+	,T2.[HCSEndOfYearDate] 
+	
+```
+
+**Note**: Be mindful of duplicate dates that may result from joining the two tables. Ensure that the start and end dates are unique for each year type. For example, *2024-04-01* and *2025-03-31* are the start and end dates, respectively, for the 2024/25 financial year.
+
+### Assign indicator ID {#ch1-sec-assign-indicator-id}
+
+Identify the indicator ID from the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file, and assign the ID to the respective column `indicator_id` in the temporary GP-level data.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE T1
+SET indicator_id = 1
+FROM #gp_data AS T1
+
+```
+
+### Extract numerator {#ch1-sec-extract-numerator}
+
+Extract counts based on the numerator definition for that indicator in the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file at the GP level, including IMD **and/or** Ethnicity splits if available. This will form the `numerator` column in the temporary GP data.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE T1
+SET T1.numerator = T2.[DiseaseRegisterSize]
+FROM #gp_data AS T1
+INNER JOIN [AnalystGlobal].[Performance].[QOFIndicatorsAndPrevalence] AS T2
+    ON T1.PracticeCode = T2.PracticeCode
+INNER JOIN EAT_Reporting_BSOL.[Reference].[BSOL_ICS_PracticeMapped] AS T3
+    ON T2.PracticeCode = T3.GPPracticeCode_Original
+WHERE T3.ICS_2223 = 'BSOL'
+  AND T2.IndicatorCode = 'STIA001'
+  AND T2.DiseaseRegisterSize IS NOT NULL
+  AND T2.PracticeCode <> 'M88006';
+
+```
+
+### Extract denominator {#ch1-sec-extract-denominator}
+
+Similarly, extract counts from the denominator column in the data source. This will form the `denominator` column in the temporary GP data.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+UPDATE T1
+SET T1.denominator = T2.[PracticeListsize] 
+FROM #gp_data AS T1
+INNER JOIN [AnalystGlobal].[Performance].[QOFIndicatorsAndPrevalence] AS T2
+    ON T1.PracticeCode = T2.PracticeCode
+INNER JOIN EAT_Reporting_BSOL.[Reference].[BSOL_ICS_PracticeMapped] AS T3
+    ON T2.PracticeCode = T3.GPPracticeCode_Original
+WHERE T3.ICS_2223 = 'BSOL'
+  AND T2.IndicatorCode = 'STIA001'
+  AND T2.DiseaseRegisterSize IS NOT NULL
+  AND T2.PracticeCode <> 'M88006';
+```
+
+### Update indicator value & CI95 bounds {#ch1-sec-update-indicator-value--ci95-bounds}
+
+Leave the`indicator_value`, `lower_ci95` and `upper_ci95` (confidence interval (CI) bounds) columns as NULL as they will be calculated in a later step that is separate from this process.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+SELECT     NULL AS [indicator_value] 
+          ,NULL As [lower_ci95]
+          ,NULL As [upper_ci95]
+INTO #GP_data
+```
+
+### Update columns {#ch1-sec-update-columns}
+
+#### IMD {#ch1-sec-imd}
+
+If the data source contains IMD splits, extract the values from the `IMD` column in the data source and reference them in the temporary GP-level data.
+
+Once you have extracted the IMD column from the data source and inserted it into the GP-level data, you will need map each IMD quintile to its corresponding `imd_code`, which is a unique code from the OF reference table below:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP (1000) [imd_code]
+      ,[imd_quintile]
+      ,[imd_quintile_desc]
+  FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_IMD]
+```
+
+Please note that if no IMD splits are available in the data source, assign the code `'999'` to the IMD column in the temporary GP-level data, which maps to `'All (Persons)'` category.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE T1
+SET T1.imd = 999
+FROM #gp_data AS T1
+```
+
+Additionally, if the data source contains IMD splits but some rows have missing quintiles, replace the NULL values in the data source with `'Unknown'` category. These can then be mapped to code `'-99'` using the reference table above.
+
+#### Ethnicity {#ch1-sec-ethnicity}
+
+If the data source contains ethnicity splits, extract the values from the `ethnicity` column in the data source and reference them in the temporary GP-level data.
+
+Once you have extracted the Ethnicity column from the data source and inserted it into the GP-level data, you will need map each ethnicity to its corresponding `ethnicity_code`, which is a unique code from the OF reference table below:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP (1000) [ethnicity_code]
+      ,[nhs_code]
+      ,[nhs_code_definitions]
+      ,[census_ethnic_group]
+      ,[definitions]
+      ,[main5_code]
+      ,[main5]
+      ,[OF_code]
+      ,[OF_grouping11]
+      ,[cvd_prevent_grouping]
+  FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity]
+```
+
+Please note that if no ethnicity splits are available in the data source, assign the code `'999'` to the ethnicity column in the temporary GP-level data, which maps to `'All (Persons)'` category.
+
+Additionally, if the data source contains ethnicity splits but some rows have missing or unknown ethnicity, replace the values with `'Unknown'`.These can then be mapped to code `'-99'` using the reference table above.
+
+#### Sex {#ch1-sec-sex}
+
+Assign the code `'999'` to the `sex` column in the temporary GP-level data, which corresponds to `'All (Persons)'` category as specified in the reference table below:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP (1000) [sex_code]
+      ,[sex]
+  FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Sex]
+```
+
+#### Age group {#ch1-sec-age-group}
+
+Assign the code `'999'` to the `age_group` column in the temporary GP-level data, which corresponds to `'All (Persons)'` category as specified in the reference table below:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP (1000) [age_code]
+      ,[age_type]
+      ,[min_age]
+      ,[max_age]
+      ,[age_group]
+      ,[age_group_label]
+      ,[age_unit]
+  FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Age_Group]
+```
+
+#### Creation date {#ch1-sec-creation-date}
+
+Update the indicator `creation_date` column with the current date.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+SELECT getdate() AS CreationDate
+INTO #GP_data
+```
+
+#### Value type {#ch1-sec-value-type}
+
+The value type defines the type of calculation required for a particular indicator. It may include (in)directly age standardised rate, crude rate, percentage, ratio, life expectancy, count, or other.
+
+Identify the value type of the indicator from the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file, and assign the corresponding code to the `value_type` column in the temporary GP-level data table using the reference table below:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP (1000) [value_type_code]
+      ,[value_type]
+  FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
+```
+
+#### Source {#ch1-sec-source}
+
+The `source` column defines where the indicator data is extracted from. Possible sources include data warehouse (SQL), SharePoint site, API, or other.
+
+Assign code `'1'` to the `source` column in the temporary GP-level data table if the indicator data is extracted from our data warehouse.
+
+Use the following reference table for further details:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP (1000) [source_code]
+                  ,[source]
+  FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Source]
+```
+
+### Add GP and PCN columns {#ch1-sec-add-gp-and-pcn-columns}
+
+To enable aggregation of data into higher levels, such as PCN and ICB, additional columns such as GP and PCN need to be added to the existing temporary GP-level data table.
+
+Use the following reference table to get the GP and corresponding PCN codes:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped
+```
+
+Make sure to filter data by **BSOL practices only**, **remove 'Cape Hill Practice' and Closed practices**.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+SELECT      DISTINCT T2.[GPPracticeCode_Original] AS GP
+                ,T2.[PCN code] AS PCN
+FROM        [AnalystGlobal].[Performance].[QOFIndicatorsAndPrevalence] T1
+INNER JOIN  EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
+ON          T1.[PracticeCode] = T2.[GPPracticeCode_Original]
+WHERE       T2.ICS_2223 = 'BSOL'
+AND             IndicatorCode = 'STIA001'
+AND             DiseaseRegisterSize IS NOT NULL
+AND             PracticeCode  <> 'M88006' --Delete cape hill practice
+AND         PCN <> 'Closed practice'
+```
+
+### Putting GP-level data together {#ch1-sec-putting-gp-level-data-together}
+
+Here's an example of building indicator data at the GP level using the QOF dataset.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+/*=================================================================================================
+ Indicator ID 1 - Reference ID 212 - Stroke: QOF prevalence (all ages)
+=================================================================================================*/
+DROP TABLE IF EXISTS #gp_data;
+
+SELECT DISTINCT
+     1                             AS indicator_id
+    ,T3.[HCSStartOfYearDate]       AS start_date
+    ,T3.[HCSEndOfYearDate]         AS end_date
+    ,T1.[DiseaseRegisterSize]      AS numerator
+    ,T1.[PracticeListsize]         AS denominator
+    ,CAST(NULL AS FLOAT)           AS indicator_value
+    ,CAST(NULL AS FLOAT)           AS lower_ci95
+    ,CAST(NULL AS FLOAT)           AS upper_ci95
+    ,999                           AS imd_code                -- All IMD
+    ,T2.[GPPracticeCode_Original]  AS gp_practice_code        -- GP
+    ,T2.[PCN code]                 AS pcn_code                -- PCN
+    ,999                           AS age_group_code          -- All Ages
+    ,999                           AS sex_code                -- All Persons
+    ,999                           AS ethnicity_code          -- All ethnicity
+    ,CAST(GETDATE() AS DATE)       AS creation_date
+    ,2                             AS value_type_code         -- Percentage
+    ,1                             AS source_code             -- SQL
+INTO #gp_data
+FROM [AnalystGlobal].[Performance].[QOFIndicatorsAndPrevalence] AS T1
+INNER JOIN EAT_Reporting_BSOL.[Reference].[BSOL_ICS_PracticeMapped] AS T2
+    ON T1.[PracticeCode] = T2.[GPPracticeCode_Original]
+INNER JOIN [Reference].[dbo].[DIM_tbDate] AS T3
+    ON T1.[FinancialYear] = T3.[HCSFinancialYearName]
+WHERE T2.[ICS_2223] = 'BSOL'
+  AND T1.[IndicatorCode] = 'STIA001'
+  AND T1.[DiseaseRegisterSize] IS NOT NULL
+  AND T1.[PracticeCode] <> 'M88006';  -- Exclude Cape Hill practice
+
+```
+
+## Build PCN-level data {#ch1-sec-build-pcn-level-data}
+
+Use the temporary GP-level data and aggregate it to the PCN-level data by grouping on the required columns.
+
+Then, insert the aggregated data into the staging processed indicator data table created in [Step 3.1.1](#ch1-sec-staging-table-for-processed-indicator-data).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+INSERT INTO #staging_QOF_data
+(
+    indicator_id,
+    start_date,
+    end_date,
+    numerator,
+    denominator,
+    indicator_value,
+    lower_ci95,
+    upper_ci95,
+    imd_code,
+    aggregation_id,
+    age_group_code,
+    sex_code,
+    ethnicity_code,
+    creation_date,
+    value_type_code,
+    source_code
+)
+SELECT
+     indicator_id
+    ,start_date
+    ,end_date
+    ,SUM(numerator)           AS numerator
+    ,SUM(denominator)         AS denominator
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code                 -- All IMD
+    ,pcn_code                 AS aggregation_id   -- map to aggregation_id later
+    ,age_group_code           -- All ages
+    ,sex_code                 -- All persons
+    ,ethnicity_code           -- All ethnicities
+    ,creation_date
+    ,value_type_code          -- Percentage
+    ,source_code              -- SQL
+FROM #gp_data
+WHERE pcn_code <> 'Closed practice'
+GROUP BY
+     indicator_id
+    ,start_date
+    ,end_date
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code
+    ,pcn_code
+    ,age_group_code
+    ,sex_code
+    ,ethnicity_code
+    ,creation_date
+    ,value_type_code
+    ,source_code;
+    
+```
+
+Note that the `geography` column now contains PCN codes.
+
+## Build ICB-level data {#ch1-sec-build-icb-level-data}
+
+Use the temporary GP-level data and aggregate it to the ICB-level data by grouping on the required columns.
+
+Then, insert the aggregated data into the staging processed indicator data table created in [Step 3.1.1](#ch1-sec-staging-table-for-processed-indicator-data).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================================
+ ICB-level data
+=================================================================================================*/
+INSERT INTO #staging_QOF_data
+(
+    indicator_id,
+    start_date,
+    end_date,
+    numerator,
+    denominator,
+    indicator_value,
+    lower_ci95,
+    upper_ci95,
+    imd_code,
+    aggregation_id,
+    age_group_code,
+    sex_code,
+    ethnicity_code,
+    creation_date,
+    value_type_code,
+    source_code
+)
+SELECT
+     indicator_id
+    ,start_date
+    ,end_date
+    ,SUM(numerator)           AS numerator
+    ,SUM(denominator)         AS denominator
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code                 -- All IMD
+    ,'E38000258'              AS aggregation_id   -- map to reference ID later
+    ,age_group_code           -- All ages
+    ,sex_code                 -- All persons
+    ,ethnicity_code           -- All ethnicities
+    ,creation_date
+    ,value_type_code          -- Percentage
+    ,source_code              -- SQL
+FROM #gp_data
+GROUP BY
+     indicator_id
+    ,start_date
+    ,end_date
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code
+    ,age_group_code
+    ,sex_code
+    ,ethnicity_code
+    ,creation_date
+    ,value_type_code
+    ,source_code;
+```
+
+Note that the `geography` column now contains the BSOL ICB code (E38000258).
+
+## Update geography {#ch1-sec-update-geography}
+
+Update the `geography` column in the staging processed indicator data table to ensure that it uses the `aggregation_id` from the following reference table:
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP (1000) [aggregation_id]
+      ,[aggregation_type]
+      ,[aggregation_code]
+      ,[aggregation_label]
+FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]
+
+
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================================
+Map geography codes to aggregation_id
+=================================================================================================*/
+UPDATE T1
+SET T1.[aggregation_id] = T2.[aggregation_id]
+FROM #staging_QOF_data AS T1
+JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
+  ON T1.[aggregation_id] = T2.[aggregation_code];
+```
+
+When updating the `geography` column, the **`aggregation_id`** can be obtained by joining data based on the aggregation type (PCN or ICB) and the aggregation code (PCN or ICB code).
+
+## Update final table {#ch1-sec-update-final-table}
+
+Delete the old indicator data from the final table `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]` before re-inserting new data to ensure that only the latest data is in the table.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================================
+Insert data into final table
+=================================================================================================*/
+DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+WHERE indicator_id = 1;
+
+INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+(
+    indicator_ID,
+    start_date,
+    end_date,
+    numerator,
+    denominator,
+    indicator_value,
+    lower_ci95,
+    upper_ci95,
+    imd_code,
+    aggregation_id,
+    age_group_code,
+    sex_code,
+    ethnicity_code,
+    creation_date,
+    value_type_code,
+    source_code
+)
+SELECT
+    indicator_id,
+    start_date,
+    end_date,
+    numerator,
+    denominator,
+    indicator_value,
+    lower_ci95,
+    upper_ci95,
+    imd_code,
+    aggregation_id,
+    age_group_code,
+    sex_code,
+    ethnicity_code,
+    creation_date,
+    value_type_code,
+    source_code
+FROM #staging_QOF_data;
+
+```
+
+## Update metadata {#ch1-sec-update-metadata}
+
+Once you've built your indicator, go to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file and fill in any missing fields, as well as add any caveats or notes that are not already included, so we have complete details for each metadata entry.
+
+Metadata checklist:
+
+-   Review populated fields
+
+-   Make sure fields reflect our data extracted
+
+-   Populate the empty fields
+
+-    Review and update links (some broken because of change of URL in the website)
+
+-   Review caveat for updates from fingertips for instance 
+
+-   Review status of indicator as some might have changed
+
+# Chapter 2: Building Indicators (without Pre-Defined Denominator) {#chapter2}
+
+The following steps will guide you through building OF indicators without pre-defined denominators - i.e., when the data source does not include a denominator column. Examples include indicators from **SUS** and **Mortality**.
+
+In this case, the denominator will be derived using population estimates from the Census, while the numerator will come from the data source. Since the data source is patient-level, the numerator will be calculated by grouping patient-level activity.
+
+In addition, the geography levels for these indicators are based on **residence**---i.e., Ward, Locality (resident), and Local Authority District (LAD)---rather than GP registration, where the levels would instead be PCN and ICB.
+
+**Firstly**, create a new SQL script per indicator and name the file as follows:
+
+**`ID_{indicator_id}_{indicator_short_name}`**
+
+Save the script in the corresponding data source folder within the Outcome Framework Rebuild path:
+
+**`02_Routine > BSOLBI_0033_Outcome_Framework_Rebuild > SQL`**
+
+## Create staging tables {#ch2-sec-create-staging-tables}
+
+We begin by creating three staging tables to store data at different steps:
+
+-   One table stores all BSOL residents based on admission episodes;
+
+-   One table stores the numerator dataset;
+
+-   The other stores the processed indicator data, which will be used to update the final OF dataset.
+
+### Temporary table for BSOL residents {#ch2-sec-temporary-table-for-bsol-residents}
+
+This temporary table will store all admission episodes for BSOL residents, which will subsequently be used to create the numerator dataset.
+
+The purpose of this table is to narrow down the admission episodes to the relevant population.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+DROP TABLE IF EXISTS #BSOL_OF_tbIndicator_PtsCohort_IP
+
+CREATE TABLE    #BSOL_OF_tbIndicator_PtsCohort_IP (episode_id BIGINT NOT NULL)
+```
+
+### Temporary table for numerator data {#ch2-sec-temporary-table-for-numerator-data}
+
+This temporary table will store the numerator dataset, containing all columns required to create aggregated data at geographical levels (Ward, Locality Resident, LAD) and with demographic splits.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+DROP TABLE IF EXISTS #BSOL_OF_tbStaging_NumeratorData
+
+CREATE TABLE            #BSOL_OF_tbStaging_NumeratorData 
+
+(                       [indicator_id]          INT
+,                       [time_period]           INT
+,                       [financial_year]        VARCHAR (7)
+,                       [ethnicity_code]        VARCHAR (5)
+,                       [sex]                   VARCHAR (25)
+,                       [age]                   VARCHAR (25)
+,                       [imd]                   VARCHAR (25)
+,                       [lsoa_2011]             VARCHAR (9) 
+,                       [lsoa_2021]             VARCHAR (9)
+,                       [ward_code]             VARCHAR (9)
+,                       [locality_res]          VARCHAR (10)
+,                       [lad_code]              VARCHAR (9)
+,                       [episode_id]            BIGINT NOT NULL 
+,                       [numerator]             FLOAT
+)
+
+```
+
+### Staging table for processed indicator data {#ch2-sec-staging-table-for-processed-indicator-data}
+
+This table will store the processed indicator data for each required geography level and demographic split, which will subsequently be used to update the final indicator data table.
+
+It must therefore include all columns defined in the specified data structure of the final table (i.e., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+DROP TABLE IF EXISTS #BSOL_OF_tbStaging_SUS_Data
+
+CREATE TABLE			#BSOL_OF_tbStaging_SUS_Data 
+
+(						
+						[indicator_id] INT
+,						[start_date] DATE
+,						[end_date] DATE
+,						[numerator] FLOAT
+,						[denominator] FLOAT
+,						[indicator_value] FLOAT
+,						[lower_ci95] FLOAT
+,						[upper_ci95] FLOAT
+,						[imd_code] INT
+,						[aggregation_id] INT
+,						[age_group_code] INT
+,						[sex_code] INT
+,						[ethnicity_code] INT
+,						[creation_date] DATE
+,						[value_type_code] INT
+,						[source_code] INT
+)
+
+```
+
+## Get patient cohort {#ch2-sec-get-patient-cohort}
+
+Create a cohort of BSOL residents by gathering all admission episodes within the specified period, filtered by patient geography within the BSOL footprint to narrow down the number of episodes.
+
+Insert the episodes IDs into the temporary table for BSOL residents created in [Step 4.1.1](#ch2-sec-temporary-table-for-bsol-residents).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+DECLARE			@start_month	INT
+DECLARE			@end_month		INT
+SET				  @start_month =	201904
+SET				  @end_month	 =	202508
+
+INSERT          INTO #BSOL_OF_tbIndicator_PtsCohort_IP   (episode_id)
+(
+SELECT          T1.EpisodeID
+FROM            [EAT_Reporting].[dbo].[tbInpatientEpisodes] T1
+INNER JOIN      [EAT_Reporting].[dbo].[tbIPPatientGeography] T2      
+ON              T1.EpisodeId = T2.EpisodeId
+
+WHERE           ReconciliationPoint BETWEEN  @start_month AND @end_month
+AND             T2.OSLAUA  IN ('E08000025', 'E08000029')                    --Bham & Solihull LA
+)
+
+```
+
+## Extract numerator {#ch2-sec-extract-numerator}
+
+Check the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to get the definition of the numerator and extract it accordingly.
+
+Apply all necessary filters specified in the metadata. For example: **diagnosis codes, admission methods, age at admission, diagnosis order,** and **order in spell.**
+
+Group the data appropriately (for example, by episode ID) to calculate the numerator.
+
+Insert the numerator, along with the indicator ID and episode ID, into the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+INSERT INTO     #BSOL_OF_tbStaging_NumeratorData
+(               indicator_id
+,               episode_id
+,               numerator
+)
+
+(
+SELECT          10                              AS [indicator_id]
+,               T1.episode_id
+,               1                               AS [numerator]
+
+FROM            #BSOL_OF_tbIndicator_PtsCohort_IP T1
+
+INNER JOIN      EAT_Reporting.dbo.tbIpDiagnosisRelational T2
+ON              T1.episode_id = T2.EpisodeID    
+
+INNER JOIN      EAT_Reporting.dbo.tbInpatientEpisodes T3
+ON              T1.episode_id = T3.EpisodeId
+
+WHERE           1=1
+AND             LEFT(T3.AdmissionMethodCode,1) = 2      --Emergency admissions
+AND             T3.OrderInSpell =1                                      --First Episode in Spell
+AND             LEFT(T2.DiagnosisCode,3) IN ('X60','X61','X62','X63','X64','X66','X67','X68','X69','X70','X71','X72','X73','X74','X75','X76','X77','X78','X79','X80','X81','X82','X83','X84')                                  --Self Harm
+
+GROUP BY        T1.episode_id
+)
+
+```
+
+## Update columns {#ch2-sec-update-columns}
+
+The following steps will guide you though updating the remaining columns in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+### Time period
+
+Use the time period column in the data source to update the corresponding column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[time_period]    = T2.[ReconciliationPoint]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting].[dbo].[tbInpatientEpisodes] T2
+ON          T1.[episode_id] = T2.[EpisodeId] 
+
+```
+
+### Financial year {#ch2-sec-financial-year}
+
+Use the reference table below to map each time period to its corresponding financial year and update this column accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [Reference].[dbo].[DIM_tbDate] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+
+SET         T1.[financial_year] = T2.[HCSFinancialYearName]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [Reference].[dbo].[DIM_tbDate] T2
+
+ON          T1.[time_period] = T2.[HCCSReconciliationPoint]
+
+```
+
+***Note:** Be mindful of duplicate dates that may result from using this reference table.*
+
+### Age {#ch2-sec-age}
+
+Use the age column in the data source update the corresponding column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+UPDATE          T1
+SET             T1.[age]            = T2.[AgeonAdmission]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting].[dbo].[tbInpatientEpisodes] T2
+ON          T1.[episode_id] = T2.[EpisodeId]
+```
+
+### Sex {#ch2-sec-sex}
+
+Use the sex column in the data source to update the corresponding column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+Please use the reference table below to obtain the sex description.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [Reference].[dbo].[DIM_tbGender]
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[sex]            = T3.[GenderDescription]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting].[dbo].[tbInpatientEpisodes] T2
+ON          T1.[episode_id] = T2.[EpisodeId]
+
+LEFT JOIN   [Reference].[dbo].[DIM_tbGender] T3
+ON          T2.GenderCode = T3.GenderCode
+
+```
+
+### Ethnicity {#ch2-sec-ethnicity}
+
+First, use the following **local ethnicity demographic table** to update the ethnicity column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM EAT_Reporting_BSOL.Demographic.Ethnicity
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+UPDATE      T1
+SET         T1.[ethnicity_code] = T3.[Ethnic_Code]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting].[dbo].[tbInpatientEpisodes] T2
+ON          T1.[episode_id] = T2.[EpisodeId]
+
+INNER JOIN  EAT_Reporting_BSOL.Demographic.Ethnicity T3
+ON          T2.[NHSNumber] = T3.[Pseudo_NHS_Number]
+
+```
+
+For any missing values, use the ethnicity column from **data source** to update these.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+UPDATE      T1
+SET         T1.[ethnicity_code] = T2.[EthnicCategoryCode] 
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting].[dbo].[tbInpatientEpisodes] T2
+ON          T1.[episode_id] = T2.[EpisodeId]
+
+WHERE       T1.Ethnicity_Code IS NULL
+```
+
+Finally, **clean the ethnicity code** to ensure that the relevant codes are used consistently and correctly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE       T1
+SET          T1.[ethnicity_code] = 
+    CASE 
+        WHEN T1.[ethnicity_code] = '9' THEN '99' --Unknown
+        WHEN T1.[ethnicity_code] = 'A*' THEN 'A' -- British
+        WHEN T1.[ethnicity_code] = 'ZZ' THEN 'Z' -- Not stated
+        WHEN T1.[ethnicity_code] IS NULL THEN '99' -- Unknown
+        ELSE T1.[ethnicity_code] -- Keep the existing value if no condition matches
+    END
+from        #BSOL_OF_tbStaging_NumeratorData t1
+```
+
+### LSOA 11 & LSOA 21 {#ch2-sec-lsoa-11--lsoa-21}
+
+Use the LSOA columns in the data source to update the corresponding columns in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+UPDATE      T1
+SET         T1.[lsoa_2011]  = T2.[LowerlayerSuperOutputArea2011]
+,           T1.[lsoa_2021]  = T2.[LowerlayerSuperOutputArea2021]
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting].[dbo].[tbIPPatientGeography] T2 
+
+ON          T1.[episode_id] = T2.[EpisodeId] 
+```
+
+If the LSOA 21 column is not available in the data source, use the reference table below to map LSOA 11 to LSOA 21.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2011_to_LSOA_2021]
+```
+
+### Ward {#ch2-sec-ward}
+
+Use the reference table below to map LSOA 21 to Ward, and update the Ward column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_WARD_LAD]
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[ward_code]  = T2.[WD22CD]
+ 
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+ 
+INNER JOIN  [EAT_Reporting_BSOL].[Reference].[LSOA_2021_WARD_LAD] T2
+ON          T1.[lsoa_2021] = T2.[LSOA21CD]
+
+
+```
+
+### LAD {#ch2-sec-lad}
+
+Similarly, use the reference table below to map LSOA 21 to LAD, and update the LAD column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_WARD_LAD]
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET             T1.[lad_code]   = T2.[LAD22CD]
+ 
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+ 
+INNER JOIN  [EAT_Reporting_BSOL].[Reference].[LSOA_2021_WARD_LAD] T2
+ON          T1.[lsoa_2021] = T2.[LSOA21CD]
+```
+
+### Locality (resident) {#ch2-sec-locality-resident}
+
+Use the reference table below to map LSOA 21 to Locality (resident), and update the locality column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Constituency_2025_Locality] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[locality_res]   = T2.[Locality]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Constituency_2025_Locality] T2
+ON          T1.[lsoa_2021] = T2.[LSOA21CD] 
+```
+
+### IMD {#ch2-sec-imd}
+
+The IMD is based on the population-weighted average IMD scores across LSOAs within each Ward.
+
+Use the reference table below to map each Ward to its average IMD quintile, and update the IMD column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ward_To_IMD] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[IMD]    = T2.[quintile]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ward_To_IMD] T2
+ON          T1.[ward_code] = T2.[ward_code] 
+```
+
+## Update columns to use the correct codes {#ch2-sec-update-columns-to-use-the-correct-codes}
+
+### Age {#ch2-update-columns-sec-age}
+
+Check the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to identify the age group requirements for this indicator.
+
+Also check the value type for the indicator. For example, if the value type is *directly age-standardised rate*, the age should be grouped into 5-year age bands. Otherwise, the age should follow the groupings specified in the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file (e.g., '0-18 yrs', '65+ yrs').
+
+Use the reference table below to map each age to its corresponding 5-year age band.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[tbAge] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[age] = T2.[AgeBand_5YRS]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[Reference].[tbAge] T2 
+ON          T1.[age] = T2.[Age]
+```
+
+In this example, each age is mapped to its corresponding 5-year age band, since the indicator's value type is *directly age-standardised rate*. For 5-year age bands, ensure that the maximum band is *85+ years*.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[age] = '85+'
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+WHERE       T1.[age] IN ('85-89', '90-94', '95-99', '100-104', '105-109', '110-114', '115-119', '120-124', '125-129')
+```
+
+Replace any unknown or missing ages with the category *Unknown*.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[age] = 'Unknown'
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+WHERE       T1.[age] IS NULL
+```
+
+Finally, use the reference table below to map each age group to its code, and update the `age` column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Age_Group]
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[age] = T2.[age_code]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[OF].[OF2_Reference_Age_Group]  T2 
+ON          T1.[age] = T2.[age_group]
+```
+
+### Sex {#ch2-update-columns-sec-sex}
+
+Apply '999' code to the `sex` column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`), which corresponds to 'All (Persons)'.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[sex] = '999' -- All (persons)
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+```
+
+### Ethnicity {#ch2-update-columns-sec-ethnicity}
+
+Use the reference table below to map each ethnicity to its code, and update the `ethnicity_code` column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[ethnicity_code] = T2.[ethnicity_code]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity] T2
+ON          T1.[ethnicity_code] = T2.[nhs_code]
+```
+
+### IMD {#ch2-update-columns-sec-imd}
+
+Use the reference table below to map each IMD to its code, and update the IMD column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_IMD] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+UPDATE      T1
+SET         T1.[imd] = T2.[imd_code]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_IMD] T2
+ON          T1.[imd] = T2.[imd_quintile]
+```
+
+### Ward, LAD, Locality (resident) {#ch2-update-columns-sec-ward-lad-locality-resident}
+
+Use the reference table below to map each Ward, LAD, and Locality (resident) to its code, and update the respective columns in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+--Ward 
+
+UPDATE      T1
+SET         T1.[ward_code] = T2.[aggregation_id]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]  T2 
+ON          T1.[ward_code] = T2.[aggregation_code]
+
+--Locality (resident) 
+
+UPDATE      T1
+SET         T1.[locality_res] = T2.[aggregation_id]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]  T2 
+ON          T1.[locality_res] = T2.[aggregation_label]
+
+--LAD 
+
+UPDATE      T1
+SET         T1.[lad_code] = T2.[aggregation_id]
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+INNER JOIN  [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]  T2 
+ON          T1.[lad_code] = T2.[aggregation_code]
+```
+
+## Aggregate dataset {#ch2-sec-aggregate-dataset}
+
+The following steps will guide you through aggregating the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) to geography levels (Ward, Locality resident, LAD) with demographic splits.
+
+The aggregated dataset should contain the following columns:
+
+-   Indicator ID column: `indicator_id`
+
+-   Start and end dates of the financial year: `start_date`, `end_date`
+
+-   Sum of numerator
+
+-   Demographic columns: `imd_code`, `age_group_code`, `sex_code`, `ethnicity_code`
+
+-   Blank (NULL) columns: `denominator`, `indicator_value`, `lower_ci95`, `upper_ci95`
+
+-   Geography column: `aggregation_id`
+
+-   Creation date column, which is the current date: `creation_date`
+
+-   Value type column, as specified in the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file: `value_type_code`
+
+-   Source column specifying where the indicator is derived from, as specified in the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file: `source_code`
+
+### Ward geography {#ch2-sec-ward-geography}
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+SELECT      
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE) AS start_date
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE) AS end_date
+,           SUM(T1.[numerator]) AS numerator
+,           CAST(NULL AS INT) AS denominator
+,           CAST(NULL AS NUMERIC) AS indicator_value
+,           CAST(NULL AS NUMERIC) AS lower_ci95
+,           CAST(NULL AS NUMERIC) AS upper_ci95
+,           T1.[imd] AS imd_code
+,           T1.[ward_code] AS aggregation_id
+,           T1.[age] AS age_group_code
+,           T1.[sex] AS sex_code
+,           T1.[ethnicity_code] 
+,           CAST(CURRENT_TIMESTAMP AS DATE) AS creation_date
+,           '4' AS value_type_code --DASR
+,           '1' AS source_code -- SQL
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+GROUP BY 
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE)
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE)
+,           T1.[imd]
+,           T1.[ward_code] 
+,           T1.[sex]
+,           T1.[age]
+,           T1.[ethnicity_code] 
+
+```
+
+### LAD geography {#ch2-sec-lad-geography}
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+SELECT      
+            T1.[indicator_id]
+,           CAST(LEFT(T1.financial_year, 4) + '-04-01' AS DATE) AS start_date
+,           CAST('20' + RIGHT(T1.financial_year, 2) + '-03-31' AS DATE) AS end_date
+,           SUM(T1.numerator) AS numerator
+,           CAST(NULL AS INT) AS denominator
+,           CAST(NULL AS NUMERIC) AS indicator_value
+,           CAST(NULL AS NUMERIC) AS lower_ci95
+,           CAST(NULL AS NUMERIC) AS upper_ci95
+,           T1.[imd] AS imd_code
+,           T1.[lad_code] AS aggregation_id
+,           T1.[age] AS gae_group_code
+,           t1.[sex] AS sex_code 
+,           T1.[ethnicity_code] AS ethnicity_code
+,           CAST(CURRENT_TIMESTAMP AS date) AS creation_date
+,           '4' AS value_type_code --DASR
+,           '1' AS source_code
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+GROUP BY 
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE)
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE)
+,           T1.[imd]
+,           T1.[lad_code]
+,           T1.[age]
+,           T1.[sex]
+,           T1.[ethnicity_code] 
+
+```
+
+### Locality (resident) geography {#ch2-sec-locality-resident-geography}
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+SELECT      
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE) AS start_date
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE) AS end_date
+,           SUM(T1.[numerator]) AS numerator
+,           CAST(NULL AS INT) AS denominator
+,           CAST(NULL AS NUMERIC) AS indicator_value
+,           CAST(NULL AS NUMERIC) AS lower_ci95
+,           CAST(NULL AS NUMERIC) AS upper_ci95
+,           T1.[imd] AS imd_code
+,           T1.[locality_res] AS aggregation_id
+,           T1.[age] AS age_group_code
+,           T1.[sex] AS sex_code 
+,           T1.[ethnicity_code]
+,           CAST(CURRENT_TIMESTAMP AS DATE) AS creation_date
+,           '4' AS value_type_code --DASR
+,           '1' AS source_code -- SQL
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+    
+WHERE       [locality_res] <> 'Non-bsol'
+    
+GROUP BY 
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE)
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE)
+,           T1.[imd]
+,           T1.[locality_res]
+,           T1.[age]
+,           T1.[sex]
+,           T1.[ethnicity_code] 
+
+
+
+```
+
+## Insert data into staging table {#ch2-sec-insert-data-into-staging-table}
+
+You can union those three datasets for Ward, Locality (resident), and LAD geographies created in the previous steps, and insert them into the staging table for the processed indicator data created in [Step 4.1.3](#ch2-sec-staging-table-for-processed-indicator-data).
+
+For the Locality geography, ensure that 'Non-BSOL' locality is removed from the dataset.
+
+Assign the current date to the indicator `creation_date`.
+
+Additionally, assign the value type and source from the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to the `value_type` and `source` column, respectively.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+INSERT INTO #BSOL_OF_tbStaging_SUS_Data (
+            [indicator_id]
+,           [start_date]
+,           [end_date]
+,           [numerator]
+,           [denominator]
+,           [indicator_value]
+,           [lower_ci95]
+,           [upper_ci95]
+,           [imd_code]
+,           [aggregation_id]
+,           [age_group_code]
+,           [sex_code]
+,           [ethnicity_code]
+,           [creation_date]
+,           [value_type_code]
+,           [source_code]
+)
+
+-- Ward Geography
+(SELECT     
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE) AS start_date
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE) AS end_date
+,           SUM(T1.[numerator]) AS numerator
+,           CAST(NULL AS INT) AS denominator
+,           CAST(NULL AS NUMERIC) AS indicator_value
+,           CAST(NULL AS NUMERIC) AS lower_ci95
+,           CAST(NULL AS NUMERIC) AS upper_ci95
+,           T1.[imd] AS imd_code
+,           T1.[ward_code] AS aggregation_id
+,           T1.[age] AS age_group_code
+,           T1.[sex] AS sex_code
+,           T1.[ethnicity_code] 
+,           CAST(CURRENT_TIMESTAMP AS DATE) AS creation_date
+,           '4' AS value_type_code --DASR
+,           '1' AS source_code -- SQL
+
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+GROUP BY 
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE)
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE)
+,           T1.[imd]
+,           T1.[ward_code] 
+,           T1.[sex]
+,           T1.[age]
+,           T1.[ethnicity_code] 
+
+UNION
+
+-- LAD Geography
+SELECT      
+            T1.[indicator_id]
+,           CAST(LEFT(T1.financial_year, 4) + '-04-01' AS DATE) AS start_date
+,           CAST('20' + RIGHT(T1.financial_year, 2) + '-03-31' AS DATE) AS end_date
+,           SUM(T1.numerator) AS numerator
+,           CAST(NULL AS INT) AS denominator
+,           CAST(NULL AS NUMERIC) AS indicator_value
+,           CAST(NULL AS NUMERIC) AS lower_ci95
+,           CAST(NULL AS NUMERIC) AS upper_ci95
+,           T1.[imd] AS imd_code
+,           T1.[lad_code] AS aggregation_id
+,           T1.[age] AS gae_group_code
+,           t1.[sex] AS sex_code 
+,           T1.[ethnicity_code] AS ethnicity_code
+,           CAST(CURRENT_TIMESTAMP AS date) AS creation_date
+,           '4' AS value_type_code --DASR
+,           '1' AS source_code
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+
+GROUP BY 
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE)
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE)
+,           T1.[imd]
+,           T1.[lad_code]
+,           T1.[age]
+,           T1.[sex]
+,           T1.[ethnicity_code] 
+
+UNION 
+
+--Locality Geography
+SELECT      
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE) AS start_date
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE) AS end_date
+,           SUM(T1.[numerator]) AS numerator
+,           CAST(NULL AS INT) AS denominator
+,           CAST(NULL AS NUMERIC) AS indicator_value
+,           CAST(NULL AS NUMERIC) AS lower_ci95
+,           CAST(NULL AS NUMERIC) AS upper_ci95
+,           T1.[imd] AS imd_code
+,           T1.[locality_res] AS aggregation_id
+,           T1.[age] AS age_group_code
+,           T1.[sex] AS sex_code 
+,           T1.[ethnicity_code]
+,           CAST(CURRENT_TIMESTAMP AS DATE) AS creation_date
+,           '4' AS value_type_code --DASR
+,           '1' AS source_code -- SQL
+FROM        #BSOL_OF_tbStaging_NumeratorData T1
+    
+WHERE       [locality_res] <> 'Non-bsol'
+    
+GROUP BY 
+            T1.[indicator_id]
+,           CAST(LEFT(T1.[financial_year], 4) + '-04-01' AS DATE)
+,           CAST('20' + RIGHT(T1.[financial_year], 2) + '-03-31' AS DATE)
+,           T1.[imd]
+,           T1.[locality_res]
+,           T1.[age]
+,           T1.[sex]
+,           T1.[ethnicity_code] 
+
+
+)
+
+```
+
+## Create dataset with IMD collapsed to 'All' {#ch2-sec-create-dataset-with-imd-collapsed-to-all}
+
+This step enables calculation of rates or other value types by Ethnicity only.
+
+Get all the columns from the staging processed indicator data and assign '999' code to the `imd_code` column, which corresponds to 'All (Persons)' category.
+
+Save the data in a temporary table so that it can later be joined together with the other processed indicator data before inserting them into the final table.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+DROP TABLE IF EXISTS #temp1
+
+SELECT  
+            [indicator_id]
+,           [start_date]
+,           [end_date]
+,           SUM([numerator]) AS numerator
+,           NULL AS denominator
+,           NULL AS indicator_value     
+,           NULL AS lower_ci95
+,           NULL AS upper_ci95
+,           '999' AS imd_code -- All
+,           [aggregation_id]
+,           [age_group_code]
+,           [sex_code]
+,           [ethnicity_code]
+,           [creation_date]
+,           [value_type_code]
+,           [source_code]
+
+INTO        #temp1
+
+FROM        #BSOL_OF_tbStaging_SUS_Data
+
+GROUP BY 
+            [indicator_id]
+,           [start_date]
+,           [end_date]
+,           [aggregation_id]
+,           [age_group_code]
+,           [sex_code]
+,           [ethnicity_code]
+,           [creation_date]
+,           [value_type_code]
+,           [source_code]
+
+```
+
+## Create dataset with Ethnicity collapsed to 'All' {#ch2-sec-create-dataset-with-ethnicity-collapsed-to-all}
+
+This step enables calculation of rates or other value types by IMD only.
+
+Get all the columns from the staging processed indicator data and assign '999' code to the `ethnicity_code` column, which corresponds to 'All (Persons)' category.
+
+Save the data in a temporary table so that it can later be joined together with the other processed indicator data before inserting them into the final table.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+DROP TABLE IF EXISTS #temp2
+
+SELECT  
+            [indicator_id]
+,           [start_date]
+,           [end_date]
+,           SUM([numerator]) AS Numerator
+,           NULL AS Denominator
+,           NULL AS IndicatorValue     
+,           NULL AS LowerCI95
+,           NULL AS UpperCI95
+,           [imd_code]
+,           [aggregation_id]
+,           [age_group_code]
+,           [sex_code]
+,           '999' AS [ethnicity_code] -- All
+,           [creation_date]
+,           [value_type_code]
+,           [source_code]
+
+INTO        #temp2
+
+FROM        #BSOL_OF_tbStaging_SUS_Data
+
+GROUP BY 
+            [indicator_id]
+,           [start_date]
+,           [end_date]
+,           [imd_code]
+,           [aggregation_id]
+,           [age_group_code]
+,           [sex_code]
+,           [creation_date]
+,           [value_type_code]
+,           [source_code]
+
+```
+
+## Insert data into final table {#ch2-sec-insert-data-into-final-table}
+
+Ensure to delete the old data from the final table before re-inserting new data.
+
+Union all datasets (i.e., from tables created in [Step 4.7](#ch2-sec-insert-data-into-staging-table), [Step 4.8](#ch2-sec-create-dataset-with-imd-collapsed-to-all), and [Step 4.9](#ch2-sec-create-dataset-with-ethnicity-collapsed-to-all)) and insert them into the final table.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+WHERE indicator_id = 10
+
+INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+SELECT * FROM (
+    SELECT * FROM #BSOL_OF_tbStaging_SUS_Data
+        UNION
+    SELECT * FROM #temp1
+        UNION
+    SELECT * FROM #temp2) AS final
+
+```
+
+## Update metadata {#ch2-sec-update-metadata}
+
+Once you've built your indicator, go to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file and fill in any missing fields, as well as add any caveats or notes that are not already included, so we have complete details for each metadata entry.
+
+Metadata checklist:
+
+-   Review populated fields
+
+-   Make sure fields reflect our data extracted
+
+-   Populate the empty fields
+
+-    Review and update links (some broken because of change of URL in the website)
+
+-   Review caveat for updates from fingertips for instance 
+
+-   Review status of indicator as some might have changed
+
+# Chapter 3: Building Indicators with Derived Denominator {#chapter3}
+
+The following steps will guide you through building OF indicators, where both the numerator and denominator are derived from their respective data sources. Unlike the first two chapters, this chapter focuses on indicators that **do not have an existing denominator column** in their data sources and **do not rely on population estimates** from the Census to derive their denominators.
+
+An example of such an indicator is the **National Diabetes Audit (NDA)**, where the data is at the patient level and contains GP practice information. Therefore, we will aggregate the dataset into PCN and ICB geographical hierarchies with available demographic splits.
+
+First, create a new SQL script for each indicator and name the file as follows:
+
+**`ID_{indicator_id}_{indicator_short_name}.sql`**
+
+Save the script in the corresponding data source folder within the Outcome Framework Rebuild path:
+
+**`02_Routine > BSOLBI_0033_Outcome_Framework_Rebuild > SQL`**
+
+## Creating staging table {#ch3-sec-creating-staging-table}
+
+We begin by creating a staging table to store the processed indicator data. This table should contain all required columns, matching those in the final OF dataset (`[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`), so that it can be used to update the final dataset.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================
+STEP 1: Create a staging table for processed indicator data
+=================================================================================*/
+
+DROP TABLE IF EXISTS #staging_NDA_data;
+
+CREATE TABLE #staging_NDA_data
+(
+  indicator_id          INT,
+  start_date            DATE,
+  end_date              DATE,
+  numerator             FLOAT,
+  denominator           FLOAT,
+  indicator_value       FLOAT,
+  lower_ci95            FLOAT,
+  upper_ci95            FLOAT,
+  imd_code              INT,
+  aggregation_id        VARCHAR(25),
+  age_group_code        INT,
+  sex_code              INT,
+  ethnicity_code        INT,
+  creation_date         DATE,
+  value_type_code       INT,
+  source_code           INT
+);
+```
+
+## Create numerator dataset {#ch3-sec-create-numerator-dataset-}
+
+We will now create a dataset to store patient-level numerator data. Check the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to understand the definition of numerator for your indicator, including any conditions or filters required.
+
+This dataset should have the required columns to enable the aggregation of numerators with geographic and demographic splits. These include `indicator id`, `financial year`, `IMD quintile`, `age`, `sex`, `ethnicity`, `GP practice code`, and `Pseudo NHS number`.
+
+Apply all necessary filters such as time periods and specific conditions to obtain the patient cohort as specified in the metadata file. In addition, you can use the following reference table to select only BSOL practices.
+
+``` sql
+SELECT TOP 1000 * FROM EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+/*=================================================================================
+STEP 2: Create patient-level numerator dataset
+Numerator: Patients at BSOL GP Practices with Type 1 Diabetes who received all 8 care processes
+=================================================================================*/
+
+DROP TABLE IF EXISTS #numerator_data;
+
+SELECT DISTINCT
+    35                                  AS indicator_id,
+    T1.AUDIT_YEAR                       AS financial_year,
+    1                                   AS numerator,         
+    T1.IMD_QUINTILE                     AS imd_quintile,
+    T1.AGE                              AS age_group,
+    T1.CLEAN_SEX                        AS sex_code,
+    T1.CLEAN_ETHNICITY                  AS ethnicity_code,
+    T1.CURRENT_GP                       AS gp_practice,
+    T1.PatientId                        AS pseudo_nhs_number
+INTO #numerator_data
+FROM      [LocalFeeds].[Reporting].[NationalDiabetesAudit_NDA_Core_Data]      AS T1
+INNER JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped               AS T2
+        ON T1.CURRENT_GP = T2.GPPracticeCode_Original
+WHERE T2.ICS_2223 = 'BSOL'
+  AND T1.CLEAN_DIABETES_TYPE IN ('1','01')                       -- Type 1 Diabetes
+  AND T1.ALL_8_CARE_PROCESSES = 1                     -- Received all 8 care processes
+  AND AUDIT_YEAR IN ('201415', '201516', '201617', '201718', '201819', '201920', '202021', '202122E4', '202223', '202324E3');
+```
+
+### Update ethnicity from local demographic table {#ch3-sec-update-ethnicity-from-local-demographic-table}
+
+Update the ethnicity code in your patient-level numerator data using the local demographic table below when the pseudo NHS number matches. Otherwise, retain the ethnicity code from the data source.
+
+``` sql
+SELECT TOP 10000 * FROM EAT_Reporting_BSOL.Demographic.Ethnicity
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+/*=================================================================================
+STEP 3: Update numerator ethnicity code from Local Demographics
+=================================================================================*/
+
+UPDATE T1
+SET    T1.ethnicity_code = T2.Ethnic_Code
+FROM   #numerator_data AS T1
+INNER JOIN   EAT_Reporting_BSOL.Demographic.Ethnicity AS T2
+       ON T1.pseudo_nhs_number = T2.Pseudo_NHS_Number;
+       
+```
+
+### Aggregate numerator {#ch3-sec-aggregate-numerator}
+
+Aggregate the numerator dataset to obtain total numerators across the extracted columns. At this point, you will have a GP-level aggregated dataset (no longer at patient-level), which will later be combined with the denominator dataset before finalising the final table.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+/*=================================================================================
+STEP 4: Aggregate numerator
+=================================================================================*/
+
+DROP TABLE IF EXISTS #numerator_data_grouped;
+
+SELECT
+    indicator_id,
+    financial_year,
+    imd_quintile,
+    age_group,
+    sex_code,
+    ethnicity_code,
+    gp_practice,
+    SUM(numerator)                      AS numerator
+INTO #numerator_data_grouped
+FROM #numerator_data
+GROUP BY
+    indicator_id,
+    financial_year,
+    imd_quintile,
+    age_group,
+    sex_code,
+    ethnicity_code,
+    gp_practice;
+       
+```
+
+## Create denominator dataset
+
+Next, create a dataset to store patient-level denominator data. Refer to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to understand the definition of denominator for your indicator, including any conditions or filters required.
+
+This dataset include the necessary columns to allow aggregation of denominators by geographic and demographic splits. These should include: `indicator id`, `financial year`, `IMD quintile`, `age`, `sex`, `ethnicity`, `GP practice code`, and `Pseudo NHS number`. The columns in the denominator dataset must match those in the numerator dataset created in [Step 5.2](#ch3-sec-create-numerator-dataset).
+
+Apply all required filters, such as time periods and specific conditions, to obtain the population defined in the metadata file. In addition, you can use the following reference table to select only BSOL practices.
+
+``` sql
+SELECT TOP 1000 * FROM EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped 
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+/*=================================================================================
+STEP 5: Create patient-level denominator dataset
+Denominator: Patients at BSOL GP Practices with Type 1 Diabetes
+=================================================================================*/
+
+DROP TABLE IF EXISTS #denominator_data;
+
+SELECT DISTINCT
+    35                                  AS indicator_id,
+    T1.AUDIT_YEAR                       AS financial_year,
+    1                                   AS denominator,         
+    T1.IMD_QUINTILE                     AS imd_quintile,
+    T1.AGE                              AS age_group,
+    T1.CLEAN_SEX                        AS sex_code,
+    T1.CLEAN_ETHNICITY                  AS ethnicity_code,
+    T1.CURRENT_GP                       AS gp_practice,
+    T1.PatientId                        AS pseudo_nhs_number
+INTO #denominator_data
+FROM      [LocalFeeds].[Reporting].[NationalDiabetesAudit_NDA_Core_Data]      AS T1
+INNER JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped               AS T2
+        ON T1.CURRENT_GP = T2.GPPracticeCode_Original
+WHERE T2.ICS_2223 = 'BSOL'
+  AND T1.CLEAN_DIABETES_TYPE IN ('1','01') 
+  AND AUDIT_YEAR IN ('201415', '201516', '201617', '201718', '201819', '201920', '202021', '202122E4', '202223', '202324E3')
+
+
+```
+
+### Update ethnicity from local demography table {#ch3-sec-update-ethnicity-from-local-demography-table}
+
+Update the ethnicity code in your patient-level denominator data using the local demographic table below when the pseudo NHS number matches. Otherwise, retain the ethnicity code from the data source.
+
+``` sql
+SELECT TOP 10000 * FROM EAT_Reporting_BSOL.Demographic.Ethnicity
+```
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================
+STEP 6: Update denominator ethnicity code from Local Demographics
+=================================================================================*/
+
+UPDATE T1
+SET    T1.ethnicity_code = T2.Ethnic_Code
+FROM   #denominator_data AS T1
+INNER JOIN   EAT_Reporting_BSOL.Demographic.Ethnicity AS T2
+       ON T1.pseudo_nhs_number = T2.Pseudo_NHS_Number;
+
+```
+
+### Aggregate denominator {#ch3-sec-aggregate-denominator}
+
+Aggregate the denominator dataset to obtain total denominators across the extracted columns. At this point, you will have a GP-level aggregated dataset (no longer at patient-level), which will later be combined with the numerator dataset before finalising the final table.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================
+STEP 7: Aggregate denominator
+=================================================================================*/
+
+DROP TABLE IF EXISTS #denominator_data_grouped;
+
+SELECT
+    indicator_id,
+    financial_year,
+    imd_quintile,
+    age_group,
+    sex_code,
+    ethnicity_code,
+    gp_practice,
+    SUM(denominator)                      AS denominator
+INTO #denominator_data_grouped
+FROM #denominator_data
+GROUP BY
+    indicator_id,
+    financial_year,
+    imd_quintile,
+    age_group,
+    sex_code,
+    ethnicity_code,
+    gp_practice;
+
+```
+
+## Combine numerator and denominator datasets {#ch3-sec-combine-numerator-and-denominator-datasets}
+
+Once you have prepared both the aggregated numerator and denominator datasets, combine them into a single dataset by bringing the numerator into the denominator (e.g., using a LEFT JOIN from the denominator). This ensures every eligible population group is retained and that groups with no events correctly appear with a numerator of zero. Joining the other way around would restrict the data to groups with events only, which could result in numerator and denominator counts appear identical.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================
+STEP 8: Combine numerator & denominator
+=================================================================================*/
+
+DROP TABLE IF EXISTS #combined_dataset;
+
+SELECT
+    T1.indicator_id,
+    T1.financial_year,
+    T1.imd_quintile,
+    T1.age_group,
+    T1.sex_code,
+    T1.ethnicity_code,
+    T1.gp_practice,
+    T2.numerator,
+    T1.denominator
+INTO #combined_dataset
+FROM #denominator_data_grouped AS T1
+LEFT JOIN #numerator_data_grouped AS T2
+  ON  T1.financial_year          = T2.financial_year
+  AND T1.imd_quintile            = T2.imd_quintile
+  AND T1.age_group               = T2.age_group
+  AND T1.sex_code                = T2.sex_code
+  AND T1.ethnicity_code          = T2.ethnicity_code
+  AND T1.gp_practice             = T2.gp_practice;
+```
+
+## Update columns {#ch3-sec-update-columns}
+
+### Financial year {#ch3-sec-update-columns-financial-year}
+
+Standardise the financial year to the format `YYYY-YY` and remove any suffixes such as `E3` or `E4`. This will make it easier to obtain the start and end dates of the financial year.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================
+STEP 9: Standardise/Map dimension codes on the combined dataset
+=================================================================================*/
+
+-- 9.1 Standardise financial year to 'YYYY-YY' (removes any suffix like E3/E4)
+UPDATE T1
+SET T1.financial_year = LEFT(T1.financial_year, 4) + '-' + SUBSTRING(T1.financial_year, 5, 2)
+FROM #combined_dataset T1;
+
+```
+
+### Age {#ch3-sec-update-columns-age}
+
+Refer to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to identify the age group for your indicator.
+
+Then, map this age group to its corresponding code using the reference table below:
+
+``` sql
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Age_Group] 
+```
+
+For example, if the age group is `'All ages'`, then the correct code is `'999'`.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+-- 9.2 Set Age to "All" categories as per metadata
+UPDATE T1 
+SET T1.age_group = '999'  
+FROM #combined_dataset AS T1; -- All ages
+
+```
+
+### Sex {#ch3-sec-update-columns-sex}
+
+Refer to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file to identify the sex category for your indicator.
+
+Then, map this category to its corresponding code using the reference table below:
+
+``` sql
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Sex]
+```
+
+For example, if the sex category is `'All (Persons)'`, then the correct code is `'999'`.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+-- 9.3 Set Sex to "All" categories as per metadata
+UPDATE T1 
+SET T1.sex_code       = '999'  
+FROM #combined_dataset AS T1;  -- All persons
+
+```
+
+### Ethnicity {#ch3-sec-update-columns-ethnicity}
+
+If your dataset has ethnicity splits, map each ethnicity to its corresponding code using the reference table below:
+
+``` sql
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity]
+```
+
+Otherwise, assign `'999'` code to the ethnicity column, which corresponds to '`All (Persons)'` category.
+
+Additionally, ensure that any missing ethnicities are replaced with the code `'-99'`.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+-- 9.4 Map Ethnicity codes to OF reference; default to '-99' when missing/NULL
+UPDATE      T1
+SET         T1.ethnicity_code = T2.ethnicity_code
+FROM        #combined_dataset T1
+INNER JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity] T2
+ON          T1.ethnicity_code = T2.nhs_code
+
+UPDATE      T1
+SET         T1.ethnicity_code = '-99'
+FROM        #combined_dataset T1
+WHERE       T1.ethnicity_code = '' OR T1.ethnicity_code IS NULL
+
+
+```
+
+### IMD {#ch3-sec-update-columns-imd}
+
+If your dataset has IMD quintile splits, map each IMD quintile to its corresponding code using the reference table below:
+
+``` sql
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_IMD]
+```
+
+Otherwise, assign `'999'` code to the IMD column, which corresponds to '`All (Persons)'` category.
+
+Additionally, ensure that any missing quintiles are replaced with the code `'-99'`, which corresponds to the `'Unknown'` category.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+-- 9.5 Map IMD quintile to OF code; default to '-99' when missing/NULL
+UPDATE      T1
+SET         T1.imd_quintile = T2.imd_code
+FROM        #combined_dataset T1
+INNER JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_IMD] T2
+ON          T1.imd_quintile = T2.imd_quintile
+
+UPDATE      T1
+SET         T1.imd_quintile = '-99'
+FROM        #combined_dataset T1
+WHERE       T1.imd_quintile = '' OR T1.imd_quintile IS NULL
+
+
+```
+
+## Build GP-level data {#ch3-sec-build-gp-level-data}
+
+You now have a combined dataset of numerators and denominators, along with demographic splits at the GP level. Next, enrich this dataset with additional columns to match those in the final dataset, as well as GP and PCN codes, to enable aggregation at higher levels.
+
+These include:
+
+-   `start_date` and `end_date` of the financial year;
+-   `numerator` and `denominator`;
+-   empty columns for `indicator_value`, `lower_ci95`, and `upper_ci_95`;
+-   demographic splits such as `IMD_code`, `sex_code`, `age_group_code`, and `ethnicity_code`;
+-   metadata such as `creation_date`, `value_type_code`, and `source_code`
+
+You may use the reference table below to get the start and end dates of the financial year:
+
+``` sql
+SELECT TOP 1000 * FROM [Reference].[dbo].[DIM_tbDate] 
+```
+
+Ensure that you select **only BSOL practices** and **exclude** the following:
+
+-   GP practice = *Cape Hill Medical Centre (M88006)*
+-   PCN = *Closed practice*
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+
+/*=================================================================================
+STEP 10: Create GP-level dataset with additional columns
+=================================================================================*/
+DROP TABLE IF EXISTS #gp_data;
+
+SELECT 
+     1 AS indicator_id      
+    ,CAST(LEFT(T1.financial_year, 4) + '-04-01' AS DATE)         AS start_date
+    ,CAST('20' + RIGHT(T1.financial_year, 2) + '-03-31' AS DATE) AS end_date
+    ,T1.numerator    
+    ,T1.denominator      
+    ,CAST(NULL AS FLOAT) AS indicator_value
+    ,CAST(NULL AS FLOAT) AS lower_ci95
+    ,CAST(NULL AS FLOAT) AS upper_ci95
+    ,imd_quintile AS imd_code                 -- All IMD
+    ,T1.gp_practice AS gp_practice_code       -- GP
+    ,T2.[PCN code] AS pcn_code                -- PCN
+    ,T1.age_group AS age_code                 -- All Ages
+    ,T1.sex_code                              -- All Persons
+    ,T1.ethnicity_code                        
+    ,CAST(GETDATE() AS DATE) AS creation_date 
+    ,2 AS [value_type_code]                        -- Percentage
+    ,1 AS [source_code]                            -- SQL
+INTO #gp_data
+FROM #combined_dataset AS T1
+INNER JOIN EAT_Reporting_BSOL.[Reference].[BSOL_ICS_PracticeMapped] AS T2
+    ON T1.gp_practice = T2.GPPracticeCode_Original
+WHERE
+    T2.ICS_2223 = 'BSOL'
+    AND T1.gp_practice <> 'M88006' 
+    AND T2.[PCN code] <> 'closed practice';
+
+
+```
+
+## Build PCN-level data {#ch3-sec-build-pcn-level-data}
+
+Next, create a PCN-level dataset by using the GP-level dataset created in [Step 5.6](##ch3-sec-build-gp-level-data) and grouping the data by the required columns.
+
+Insert this dataset into the staging table created in [Step 5.1](#ch3-sec-creating-staging-table).
+
+Notice that the `pcn_code` column serves the aggregation level for this dataset.This column will later be updated to use the aggregation IDs from the OF geography reference table instead of the codes.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=======================================================================================================
+STEP 11: Create PCN-level dataset
+=======================================================================================================*/
+INSERT INTO #staging_NDA_data (
+        [indicator_id]
+       ,[start_date]
+       ,[end_date]
+       ,[numerator]
+       ,[denominator]
+       ,[indicator_value]
+       ,[lower_ci95]
+       ,[upper_ci95] 
+       ,[imd_code] 
+       ,[aggregation_id] 
+       ,[age_group_code] 
+       ,[sex_code] 
+       ,[ethnicity_code] 
+       ,[creation_date] 
+       ,[value_type_code] 
+       ,[source_code]
+       )
+
+SELECT  
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,sum(numerator) as numerator
+        ,sum(denominator) as denominator
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]           -- All IMD
+        ,[pcn_code]           -- Will map it to aggregation id later
+        ,[age_code]           -- All Ages
+        ,[sex_code]           -- All Persons 
+        ,[ethnicity_code]     
+        ,[creation_date]
+        ,[value_type_code]         -- Percentage
+        ,[source_code]             -- SQL
+		
+ FROM  #gp_data
+ GROUP BY    
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]          
+        ,[pcn_code]          
+        ,[age_code]     
+        ,[sex_code]          
+        ,[ethnicity_code]    
+        ,[creation_date]
+        ,[value_type_code]   
+        ,[source_code]       
+```
+
+## Build ICB-level data {#ch3-sec-build-icb-level-data}
+
+Next, create an ICB-level dataset by using the GP-level dataset created in [Step 5.6](##ch3-sec-build-gp-level-data) and grouping the data by the required columns.
+
+Assign `E38000258` to the `aggregation_id` column, as this serves as the aggregation level for this dataset. This column will later be updated to use the aggregation IDs from the OF geography reference table instead of the codes.
+
+Insert this dataset into the staging table created in [Step 5.1](#ch3-sec-creating-staging-table).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=======================================================================================================
+STEP 12: Create ICB-level dataset
+=======================================================================================================*/
+
+INSERT INTO #staging_NDA_data (
+        [indicator_id]
+       ,[start_date]
+       ,[end_date]
+       ,[numerator]
+       ,[denominator]
+       ,[indicator_value]
+       ,[lower_ci95]
+       ,[upper_ci95] 
+       ,[imd_code] 
+       ,[aggregation_id] 
+       ,[age_group_code] 
+       ,[sex_code] 
+       ,[ethnicity_code] 
+       ,[creation_date] 
+       ,[value_type_code] 
+       ,[source_code]
+       )
+SELECT  
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,sum(numerator) as numerator
+        ,sum(denominator) as denominator
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]                      -- All IMD
+        ,'E38000258'  AS icb_code        -- Will map it to agrgegation id later
+        ,[age_code]                      -- All Ages
+        ,[sex_code]                      -- All Persons sex
+        ,[ethnicity_code]     
+        ,[creation_date]
+        ,[value_type_code]                    --Percentage
+        ,[source_code]                        --SQL
+		
+ FROM  #gp_data
+ GROUP BY    
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]                  
+        ,[age_code]     
+        ,[sex_code]          
+        ,[ethnicity_code]    
+        ,[creation_date]
+        ,[value_type_code]   
+        ,[source_code]       
+
+       
+```
+
+## Update geography {#ch3-sec-update-geography}
+
+Map the PCN codes and the ICB code to their corresponding aggregation IDs using the reference table below:
+
+``` sql
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]
+```
+
+This ensures that the processed indicator data uses standardised codes and a consistent data structure.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=======================================================================================================
+STEP 13: Map geography codes to aggregation_id
+=======================================================================================================*/
+UPDATE T1
+SET    T1.[aggregation_id] = T2.[aggregation_id]
+FROM   #staging_NDA_data AS T1
+JOIN   [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
+       ON T1.[aggregation_id] = T2.[aggregation_code];
+```
+
+## Insert data into final table {#ch3-sec-insert-data-into-final-table}
+
+First, delete the old data from the final table before inserting the new data.
+
+Then, insert the data into `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=======================================================================================================
+STEP 14: Load into final table
+=======================================================================================================*/
+DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+WHERE indicator_id = 35;
+
+INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+(
+         [indicator_id]
+	   , [start_date]
+	   , [end_date]
+	   , [numerator]
+	   , [denominator]
+	   , [indicator_value]
+	   , [lower_ci95]
+	   , [upper_ci95]
+	   , [imd_code]
+	   , [aggregation_id]
+	   , [age_group_code]
+	   , [sex_code]
+	   , [ethnicity_code]
+	   , [creation_date]
+	   , [value_type_code]
+	   , [source_code]
+)
+SELECT * FROM #staging_NDA_data;
+
+
+```
+
+## Update metadata {#ch3-sec-update-metadata}
+
+Once you've built your indicator, go to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file and fill in any missing fields, as well as add any caveats or notes that are not already included, so we have complete details for each metadata entry.
+
+Metadata checklist:
+
+-   Review populated fields
+
+-   Make sure fields reflect our data extracted
+
+-   Populate the empty fields
+
+-    Review and update links (some broken because of change of URL in the website)
+
+-   Review caveat for updates from fingertips for instance 
+
+-   Review status of indicator as some might have changed
+
+# References {#sec-references}
+
+## Metadata {#sec-metadata}
+
+[Metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp)
+
+## Reference tables {#sec-reference-tables}
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show code"
+#| eval: false
+
+-- Ethnicity lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity]
+
+-- IMD lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_IMD]
+
+-- Age group lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Age_Group]
+
+-- Sex lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Sex]
+
+-- Geography lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]
+
+-- Source lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Source]
+
+-- Value type lookup table
+SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
+
+```
+
+## Final tables {#sec-final-tables}
+
+-   Processed indicator data from warehouse
+
+    ```{sql}
+    #| connection: sql_connection
+    #| code-fold: true
+    #| code-summary: "Show code"
+    #| eval: false
+
+    -- Final table for the processed indicator data extracted from warehouse
+    SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
+
+    ```
+
+-   Processed indicator data from API
+
+    ```{sql}
+    #| connection: sql_connection
+    #| code-fold: true
+    #| code-summary: "Show code"
+    #| eval: false
+
+    -- Final table for the processed indicator data extracted from API
+    SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_API_Data]
+
+    ```
+
+-   Processed indicator data from SharePoint
+
+    ```{sql}
+    #| connection: sql_connection
+    #| code-fold: true
+    #| code-summary: "Show code"
+    #| eval: false
+
+    -- Final table for the processed indicator data extracted from Sharepoint
+    SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_Sharepoint_Data]
+    ```
+
+-   Processed indicator data from other sources
+
+    ```{sql}
+    #| connection: sql_connection
+    #| code-fold: true
+    #| code-summary: "Show code"
+    #| eval: false
+
+    -- Final table for the processed indicator data extracted from other sources
+    SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_Other_Data]
+    ```
+
+# Limitations
+
+## IMD quintile
+
+1.  When creating datasets for both numerator and denominator for crude and age-standardised rate indicators, the IMD quintile column was derived from the **ward-level IMD score**. This ward-level score was calculated as the population-weighted average of the IMD scores of all LSOAs within the ward, with each LSOA's score weighted by its population. As a result, each ward was assigned only one IMD quintile.
+
+    We used this package to get a dataset of population-weighted average IMD scores for wards in England [humaniverse/IMD](https://github.com/humaniverse/IMD), [README](https://github.com/mysociety/composite_uk_imd/blob/main/readme.md).
+
+2.  This approach was carried forward when aggregating to higher geographies. For example, the IMD quintiles for a locality were based on the ward-level IMD scores of all wards within that locality, which themselves were population-weighted averages of LSOA scores. This means the locality-level quintiles are indirectly based on aggregated values rather than directly on individual LSOA scores, which may smooth out variation within wards.
+
+3.  Because IMD quintiles at ward level are based on population-weighted average scores, they reflect the overall deprivation for the majority of residents in that ward. This approach can mask pockets of high deprivation within otherwise less deprived wards. For example, if most of the ward's population lives in low-deprivation areas, small neighbourhood (LSOAs) with high deprivation will have little influence on the ward's average score. As a result, those deprived pockets may not be visible in ward-level quintiles, and interventions targeted only at "most deprived wards" may overlook these communities.
