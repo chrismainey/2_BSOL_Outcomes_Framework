@@ -845,6 +845,24 @@ FROM #staging_QOF_data;
 
 ```
 
+## Update metadata {#ch1-sec-update-metadata}
+
+Once you've built your indicator, go to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file and fill in any missing fields, as well as add any caveats or notes that are not already included, so we have complete details for each metadata entry.
+
+Metadata checklist:
+
+-   Review populated fields
+
+-   Make sure fields reflect our data extracted
+
+-   Populate the empty fields
+
+-    Review and update links (some broken because of change of URL in the website)
+
+-   Review caveat for updates from fingertips for instance 
+
+-   Review status of indicator as some might have changed
+
 # Chapter 2: Building Indicators (without Pre-Defined Denominator) {#chapter2}
 
 The following steps will guide you through building OF indicators without pre-defined denominators - i.e., when the data source does not include a denominator column. Examples include indicators from **SUS** and **Mortality**.
@@ -1983,6 +2001,24 @@ SELECT * FROM (
 
 ```
 
+## Update metadata {#ch2-sec-update-metadata}
+
+Once you've built your indicator, go to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file and fill in any missing fields, as well as add any caveats or notes that are not already included, so we have complete details for each metadata entry.
+
+Metadata checklist:
+
+-   Review populated fields
+
+-   Make sure fields reflect our data extracted
+
+-   Populate the empty fields
+
+-    Review and update links (some broken because of change of URL in the website)
+
+-   Review caveat for updates from fingertips for instance 
+
+-   Review status of indicator as some might have changed
+
 # Chapter 3: Building Indicators with Derived Denominator {#chapter3}
 
 The following steps will guide you through building OF indicators, where both the numerator and denominator are derived from their respective data sources. Unlike the first two chapters, this chapter focuses on indicators that **do not have an existing denominator column** in their data sources and **do not rely on population estimates** from the Census to derive their denominators.
@@ -2024,7 +2060,7 @@ CREATE TABLE #staging_NDA_data
   lower_ci95            FLOAT,
   upper_ci95            FLOAT,
   imd_code              INT,
-  aggregation_id        INT,
+  aggregation_id        VARCHAR(25),
   age_group_code        INT,
   sex_code              INT,
   ethnicity_code        INT,
@@ -2075,24 +2111,7 @@ FROM      [LocalFeeds].[Reporting].[NationalDiabetesAudit_NDA_Core_Data]      AS
 INNER JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped               AS T2
         ON T1.CURRENT_GP = T2.GPPracticeCode_Original
 WHERE T2.ICS_2223 = 'BSOL'
-DROP TABLE IF EXISTS #numerator_data;
-
-SELECT DISTINCT
-    35                                  AS indicator_id,
-    T1.AUDIT_YEAR                       AS financial_year,
-    1                                   AS numerator,         
-    T1.IMD_QUINTILE                     AS imd_quintile,
-    T1.AGE                              AS age_group,
-    T1.CLEAN_SEX                        AS sex_code,
-    T1.CLEAN_ETHNICITY                  AS ethnicity_code,
-    T1.CURRENT_GP                       AS gp_practice,
-    T1.PatientId                        AS pseudo_nhs_number
-INTO #numerator_data
-FROM      [LocalFeeds].[Reporting].[NationalDiabetesAudit_NDA_Core_Data]      AS T1
-INNER JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped               AS T2
-        ON T1.CURRENT_GP = T2.GPPracticeCode_Original
-WHERE T2.ICS_2223 = 'BSOL'
-  AND T1.CLEAN_DIABETES_TYPE = 1                      -- Type 1 Diabetes
+  AND T1.CLEAN_DIABETES_TYPE IN ('1','01')                       -- Type 1 Diabetes
   AND T1.ALL_8_CARE_PROCESSES = 1                     -- Received all 8 care processes
   AND AUDIT_YEAR IN ('201415', '201516', '201617', '201718', '201819', '201920', '202021', '202122E4', '202223', '202324E3');
 ```
@@ -2204,7 +2223,7 @@ FROM      [LocalFeeds].[Reporting].[NationalDiabetesAudit_NDA_Core_Data]      AS
 INNER JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped               AS T2
         ON T1.CURRENT_GP = T2.GPPracticeCode_Original
 WHERE T2.ICS_2223 = 'BSOL'
-  AND T1.CLEAN_DIABETES_TYPE = 1
+  AND T1.CLEAN_DIABETES_TYPE IN ('1','01') 
   AND AUDIT_YEAR IN ('201415', '201516', '201617', '201718', '201819', '201920', '202021', '202122E4', '202223', '202324E3')
 
 
@@ -2731,6 +2750,24 @@ SELECT * FROM #staging_NDA_data;
 
 
 ```
+
+## Update metadata {#ch3-sec-update-metadata}
+
+Once you've built your indicator, go to the [metadata](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=2HFEtp) file and fill in any missing fields, as well as add any caveats or notes that are not already included, so we have complete details for each metadata entry.
+
+Metadata checklist:
+
+-   Review populated fields
+
+-   Make sure fields reflect our data extracted
+
+-   Populate the empty fields
+
+-    Review and update links (some broken because of change of URL in the website)
+
+-   Review caveat for updates from fingertips for instance 
+
+-   Review status of indicator as some might have changed
 
 # References {#sec-references}
 
