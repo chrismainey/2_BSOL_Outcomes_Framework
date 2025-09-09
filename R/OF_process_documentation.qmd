@@ -820,8 +820,6 @@ Insert the data into the destination table (e.g., `[EAT_Reporting_BSOL].[OF].[OF
 /*=================================================================================================
 Insert data into destination table
 =================================================================================================*/
-DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
-WHERE indicator_id = 1;
 
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 (
@@ -2016,8 +2014,6 @@ There is no need to remove old data, as each record has a creation date, and we 
 #| code-summary: "Show example"
 #| eval: false
 
-DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
-WHERE indicator_id = 10
 
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 SELECT * FROM (
@@ -2758,9 +2754,6 @@ Insert the data into the destination table (e.g., `[EAT_Reporting_BSOL].[OF].[OF
 /*=======================================================================================================
 STEP 14: Load into destination table
 =======================================================================================================*/
-DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
-WHERE indicator_id = 35;
-
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 (
          [indicator_id]
