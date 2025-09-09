@@ -31,7 +31,7 @@ project:
     output-dir: Documentation
 execute:
   echo: true          
-  cache: true
+  cache: false
   warning: false
   error: false
   freeze: auto        
@@ -40,7 +40,9 @@ editor: visual
 
 ```{r}
 #| label: setup-db
+#| warning: false
 #| echo: false
+
 library(DBI)
 library(odbc)
 sql_connection <- dbConnect(
@@ -875,7 +877,7 @@ Metadata checklist:
 
 -   Review and update links (some broken because of change of URL in the website)
 
--   Review caveat for updates from fingertips for instance 
+-   Review caveat for updates from fingertips for instance
 
 -   Review status of indicator as some might have changed
 
@@ -2013,7 +2015,6 @@ There is no need to remove old data, as each record has a creation date, and we 
 #| code-fold: true
 #| code-summary: "Show example"
 #| eval: false
-
 
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 SELECT * FROM (
