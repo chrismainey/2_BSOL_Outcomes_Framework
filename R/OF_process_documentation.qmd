@@ -31,7 +31,7 @@ project:
     output-dir: Documentation
 execute:
   echo: true          
-  cache: true
+  cache: false
   warning: false
   error: false
   freeze: auto        
@@ -39,6 +39,10 @@ editor: visual
 ---
 
 ```{r}
+#| label: setup-db
+#| warning: false
+#| echo: false
+
 library(DBI)
 library(odbc)
 sql_connection <- dbConnect(
