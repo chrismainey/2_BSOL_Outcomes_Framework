@@ -1,4 +1,3 @@
-
 calculate_dsr2 <-
   function (data, x, n, stdpop = NULL, type = "full", confidence = 0.95, 
             multiplier = 1e+05, independent_events = TRUE, eventfreq = NULL, 
