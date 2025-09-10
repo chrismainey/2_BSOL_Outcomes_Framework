@@ -5,24 +5,44 @@ import pyodbc
 import pandas as pd
 
 # get area codes from db
-conn = "mssql+pyodbc://MLCSU-BI-SQL/EAT_Reporting_BSOL?driver=SQL+Server+Native+Client+11.0&trusted_connection=yes"
+#conn = "mssql+pyodbc://MLCSU-BI-SQL/EAT_Reporting_BSOL?driver=SQL+Server+Native+Client+11.0&trusted_connection=yes"
 
 #engine = sql.create_engine('mssql+pyodbc://@' + 'MLCSU-BI-SQL' + '/' + 'EAT_REPORTING_BSOL' + '?trusted_connection=Yes&driver=ODBC+Driver+17+for+SQL+Server')
 
-engine = sql.create_engine(conn)
+#engine = sql.create_engine(conn)
  
-sql_query = """
+nongp_query = """
 SELECT [aggregation_id]
       ,[aggregation_type]
       ,[aggregation_code]
       ,[aggregation_label]
   FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]
-  Where aggregation_type not in ('Locality (resident)', 'Locality (registered)', 'Unknown', 'All')
+  Where aggregation_type not in ('Locality (resident)', 'Locality (registered)', 'Ward', 'Constituency', 'Unknown', 'All')
 """
 
-area_lookup = pd.read_sql_query(sql_query, engine)
+
+gp_query = """
+select GPPracticeCode_Original, GPPracticeName_Original from 
+EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped 
+where
+ICS_2223 = 'BSOL'
+"""
+
+
+#area_lookup = pd.read_sql_query(nongp_query, engine)
+area_lookup = pd.read_csv("./data/orgs_lkp.csv")
+
 
 area_codes = area_lookup['aggregation_code'].unique().tolist()
+
+
+#gp_lookup = pd.read_sql_query(gp_query, engine)
+gp_lookup = pd.read_csv("./data/gps.csv")
+
+
+gp_codes = gp_lookup['GPPracticeCode_Original'].unique().tolist()
+
+combined_codes = area_codes + gp_codes
 
 #areas = list_area_types()
 
@@ -31,7 +51,7 @@ area_codes = area_lookup['aggregation_code'].unique().tolist()
 
 # Fist line is CSU tables from v1, second and third is BCC pipeline from v1
 of_25 = [811, 20101, 20401, 30307, 41203, 90619, 91340, 91743, 92254, 92517, 92601,
-92781, 93085, 93088, 93183, 93605, 93675, 91041, 22001, 90631]
+92781, 93085, 93088, 93183, 93605, 93675, 91041, 22001, 90631, 93438, 93454, 93790]
 
 # LA
 
@@ -49,7 +69,7 @@ of_25 = [811, 20101, 20401, 30307, 41203, 90619, 91340, 91743, 92254, 92517, 926
 area_ids = [7, 204, 221]
 
 # Fetch data
-data = get_fingertips_indicators(of_25, area_ids)
+data = get_fingertips_indicators(of_25, area_codes = combined_codes)
 
 # INdex file with date for test
 today_date = datetime.now().strftime('%Y%m%d')
