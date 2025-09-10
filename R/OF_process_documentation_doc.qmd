@@ -34,7 +34,6 @@ execute:
 editor: visual
 ---
 
-
 ```{r}
 #| label: setup-db
 #| echo: false
