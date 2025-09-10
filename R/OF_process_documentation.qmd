@@ -701,7 +701,81 @@ GROUP BY
     
 ```
 
-Note that the `geography` column now contains PCN codes.
+Note that the `aggregation_id` column now contains PCN codes. These codes will be mapped to their corresponding ids at a later step. 
+
+## Build Locality registered-level data {#ch1-sec-build-locality-reg-level-data}
+
+Use the temporary GP-level data and aggregate it to the locality registered data by grouping on the required columns.
+
+Then, insert the aggregated data into the staging processed indicator data table created in [Step 3.1.1](#ch1-sec-staging-table-for-processed-indicator-data).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================================
+ Locality registered-level data
+=================================================================================================*/
+INSERT INTO #staging_QOF_data
+(
+    indicator_id,
+    start_date,
+    end_date,
+    numerator,
+    denominator,
+    indicator_value,
+    lower_ci95,
+    upper_ci95,
+    imd_code,
+    aggregation_id,
+    age_group_code,
+    sex_code,
+    ethnicity_code,
+    creation_date,
+    value_type_code,
+    source_code
+)
+SELECT
+     indicator_id
+    ,start_date
+    ,end_date
+    ,SUM(numerator)           AS numerator
+    ,SUM(denominator)         AS denominator
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code                 -- All IMD
+    ,T2.Locality                 AS aggregation_id   -- map to aggregation_id later
+    ,age_group_code           -- All ages
+    ,sex_code                 -- All persons
+    ,ethnicity_code           -- All ethnicities
+    ,creation_date
+    ,value_type_code          -- Percentage
+    ,source_code              -- SQL
+FROM #gp_data T1
+LEFT JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
+ON T1.gp_practice_code = T2.GPPracticeCode_Original
+GROUP BY
+     indicator_id
+    ,start_date
+    ,end_date
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code
+    ,T2.Locality
+    ,age_group_code
+    ,sex_code
+    ,ethnicity_code
+    ,creation_date
+    ,value_type_code
+    ,source_code;
+    
+```
+
+Note that the `aggregation_id` column now contains Locality registered from the practice mapping table `EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped`. We will map each locality label to its corresponding id at a later step. 
 
 ## Build ICB-level data {#ch1-sec-build-icb-level-data}
 
@@ -775,7 +849,7 @@ Note that the `geography` column now contains the BSOL ICB code (E38000258).
 
 ## Update geography {#ch1-sec-update-geography}
 
-Update the `geography` column in the staging processed indicator data table to ensure that it uses the `aggregation_id` from the following reference table:
+Update the `aggregation_id` column in the staging processed indicator data table to ensure that it uses the `aggregation_id` from the following reference table:
 
 ```{sql}
 #| connection: sql_connection
@@ -800,14 +874,23 @@ FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]
 /*=================================================================================================
 Map geography codes to aggregation_id
 =================================================================================================*/
+-- PCN and ICB
 UPDATE T1
 SET T1.[aggregation_id] = T2.[aggregation_id]
 FROM #staging_QOF_data AS T1
 JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
   ON T1.[aggregation_id] = T2.[aggregation_code];
+
+-- Locality registered
+UPDATE T1
+SET T1.[aggregation_id] = T2.[aggregation_id]
+FROM #staging_QOF_data AS T1
+JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
+  ON T1.[aggregation_id] = T2.[aggregation_label] -- map based on labels instead
+WHERE T2.[aggregation_type] = 'Locality (registered)'
 ```
 
-When updating the `geography` column, the **`aggregation_id`** can be obtained by joining data based on the aggregation type (PCN or ICB) and the aggregation code (PCN or ICB code).
+When updating the `aggregation_id` column, the **`aggregation_id`** can be obtained by joining data based on the aggregation type (PCN, ICB, or Locality (registered)) and/or the aggregation code (PCN or ICB code).
 
 ## Update destination table {#ch1-sec-update-final-table}
 
@@ -1345,7 +1428,7 @@ Use the reference table below to map LSOA 21 to Locality (resident), and update 
 #| code-summary: "Show code"
 #| eval: false
 
-SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Constituency_2025_Locality] 
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_Ward_2025_LAD_25]
 ```
 
 ```{sql}
@@ -1354,13 +1437,13 @@ SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Const
 #| code-summary: "Show example"
 #| eval: false
 
-UPDATE      T1
-SET         T1.[locality_res]   = T2.[Locality]
+UPDATE		T1
+SET			  T1.[locality_res]	= T2.[Locality]
 
-FROM        #BSOL_OF_tbStaging_NumeratorData T1
+FROM		#BSOL_OF_tbStaging_NumeratorData T1
 
-INNER JOIN  [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Constituency_2025_Locality] T2
-ON          T1.[lsoa_2021] = T2.[LSOA21CD] 
+INNER JOIN	[EAT_Reporting_BSOL].[Reference].[LSOA_2021_Ward_2025_LAD_25] T2
+ON		  	T1.[lsoa_2021] = T2.[LSOA21CD] 
 ```
 
 ### IMD {#ch2-sec-imd}
@@ -2642,7 +2725,80 @@ SELECT
         ,[value_type_code]   
         ,[source_code]       
 ```
+## Build Locality registered-level data {#ch3-sec-build-locality-reg-level-data}
 
+Next, create a locality registered-level dataset by using the GP-level dataset created in [Step 5.6](##ch3-sec-build-gp-level-data) and grouping the data by the required columns.
+
+Insert this dataset into the staging table created in [Step 5.1](#ch3-sec-creating-staging-table).
+
+Notice that the `T2.[locality]` column from the practice mapping table `EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped` serves the aggregation level for this dataset.This column will later be updated to use the aggregation IDs from the OF geography reference table instead of the labels.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*======================================================================================================
+STEP 12: Create locality registered-level dataset
+=======================================================================================================*/
+INSERT INTO #staging_NDA_data (
+        [indicator_id]
+       ,[start_date]
+       ,[end_date]
+       ,[numerator]
+       ,[denominator]
+       ,[indicator_value]
+       ,[lower_ci95]
+       ,[upper_ci95] 
+       ,[imd_code] 
+       ,[aggregation_id] 
+       ,[age_group_code] 
+       ,[sex_code] 
+       ,[ethnicity_code] 
+       ,[creation_date] 
+       ,[value_type_code] 
+       ,[source_code]
+       )
+
+SELECT  
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,sum(numerator) as numerator
+        ,sum(denominator) as denominator
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]           -- All IMD
+        ,T2.[Locality]        -- Will map it to aggregation id later
+        ,[age_code]           -- All Ages
+        ,[sex_code]           -- All Persons 
+        ,[ethnicity_code]     
+        ,[creation_date]
+        ,[value_type_code]         -- Percentage
+        ,[source_code]             -- SQL
+		
+ FROM  #gp_data T1
+ LEFT JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
+ ON T1.gp_practice_code = T2.GPPracticeCode_Original
+ GROUP BY    
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]          
+        ,T2.[Locality]          
+        ,[age_code]     
+        ,[sex_code]          
+        ,[ethnicity_code]    
+        ,[creation_date]
+        ,[value_type_code]   
+        ,[source_code]       
+       
+```
 ## Build ICB-level data {#ch3-sec-build-icb-level-data}
 
 Next, create an ICB-level dataset by using the GP-level dataset created in [Step 5.6](##ch3-sec-build-gp-level-data) and grouping the data by the required columns.
@@ -2658,7 +2814,7 @@ Insert this dataset into the staging table created in [Step 5.1](#ch3-sec-creati
 #| eval: false
 
 /*=======================================================================================================
-STEP 12: Create ICB-level dataset
+STEP 13: Create ICB-level dataset
 =======================================================================================================*/
 
 INSERT INTO #staging_NDA_data (
@@ -2733,13 +2889,23 @@ This ensures that the processed indicator data uses standardised codes and a con
 #| eval: false
 
 /*=======================================================================================================
-STEP 13: Map geography codes to aggregation_id
+STEP 14: Map geography codes to aggregation_id
 =======================================================================================================*/
+--PCN and ICB
+
 UPDATE T1
 SET    T1.[aggregation_id] = T2.[aggregation_id]
 FROM   #staging_NDA_data AS T1
 JOIN   [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
        ON T1.[aggregation_id] = T2.[aggregation_code];
+
+-- Locality registered
+UPDATE T1
+SET T1.[aggregation_id] = T2.[aggregation_id]
+FROM #staging_NDA_data AS T1
+JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
+  ON T1.[aggregation_id] = T2.[aggregation_label] -- map based on labels instead
+WHERE T2.[aggregation_type] = 'Locality (registered)'
 ```
 
 ## Insert data into destination table {#ch3-sec-insert-data-into-final-table}
@@ -2753,7 +2919,7 @@ Insert the data into the destination table (e.g., `[EAT_Reporting_BSOL].[OF].[OF
 #| eval: false
 
 /*=======================================================================================================
-STEP 14: Load into destination table
+STEP 15: Load into destination table
 =======================================================================================================*/
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 (
