@@ -58,10 +58,14 @@ def get_fingertips_indicators(indicator_ids, area_codes=None):
 
     # Filter by area_codes if provided
     if area_codes is not None:
-        for col in ['AreaCode', 'area_code', 'AREACODE']:
-            if col in combined_df.columns:
-                combined_df = combined_df[combined_df[col].isin(area_codes)]
+        # Look for any column that matches 'areacode' ignoring case and spaces
+        area_code_col = None
+        for col in combined_df.columns:
+            if col.replace(" ", "").lower() == "areacode":
+                area_code_col = col
                 break
+        if area_code_col:
+            combined_df = combined_df[combined_df[area_code_col].isin(area_codes)]
     return combined_df
 
 def list_area_types():

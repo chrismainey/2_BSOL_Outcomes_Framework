@@ -3,6 +3,7 @@ from datetime import datetime
 import sqlalchemy as sql
 import pyodbc
 import pandas as pd
+import time
 
 # get area codes from db
 #conn = "mssql+pyodbc://MLCSU-BI-SQL/EAT_Reporting_BSOL?driver=SQL+Server+Native+Client+11.0&trusted_connection=yes"
@@ -69,7 +70,11 @@ of_25 = [811, 20101, 20401, 30307, 41203, 90619, 91340, 91743, 92254, 92517, 926
 area_ids = [7, 204, 221]
 
 # Fetch data
-data = get_fingertips_indicators(of_25, area_codes = combined_codes)
+start_time = time.time()
+data = get_fingertips_indicators(of_25, area_codes=combined_codes)
+end_time = time.time()
+
+print(f"Download took {end_time - start_time:.2f} seconds")
 
 # INdex file with date for test
 today_date = datetime.now().strftime('%Y%m%d')
