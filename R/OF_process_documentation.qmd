@@ -757,6 +757,7 @@ SELECT
 FROM #gp_data T1
 LEFT JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
 ON T1.gp_practice_code = T2.GPPracticeCode_Original
+WHERE T2.locality<>'Not applicable'
 GROUP BY
      indicator_id
     ,start_date
@@ -2782,6 +2783,7 @@ SELECT
  FROM  #gp_data T1
  LEFT JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
  ON T1.gp_practice_code = T2.GPPracticeCode_Original
+ WHERE T2.locality<>'Not applicable'
  GROUP BY    
          [indicator_id]
         ,[start_date]
