@@ -31,7 +31,7 @@ project:
     output-dir: Documentation
 execute:
   echo: true          
-  cache: true
+  cache: false
   warning: false
   error: false
   freeze: auto        
@@ -40,7 +40,9 @@ editor: visual
 
 ```{r}
 #| label: setup-db
+#| warning: false
 #| echo: false
+
 library(DBI)
 library(odbc)
 sql_connection <- dbConnect(
@@ -57,7 +59,7 @@ sql_connection <- dbConnect(
 
 This documentation outlines the steps for building a dataset of indicators that draw from multiple sources, with the purpose of monitoring patient outcomes across several domains, including **Cancer, Frailty and End of Life, Cardiovascular Health, Mental Health, Respiratory Health, Mortality, Children and Young People, Prevention,** and **Other**.
 
-Additionally, this dataset will support monitoring variations across **geographic levels** such as **PCN, ICN, Ward, Locality (resident),** and **Local Authority District,** as well as **demographic groups**. This will allow us to assess inequalities by ethnicity and deprivation. There are approximately 120 indicators across 7 domains, and each indicator has its own requirements for dataset construction. This documentation will guide you through the steps involved in building an indicator, based on the conditions specified in the metadata file, which can be found [here](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=loJrNj).
+Additionally, this dataset will support monitoring variations across **geographic levels** such as **PCN, ICB, Ward, Locality (resident),** and **Local Authority District,** as well as **demographic groups**. This will allow us to assess inequalities by ethnicity and deprivation. There are approximately 120 indicators across 7 domains, and each indicator has its own requirements for dataset construction. This documentation will guide you through the steps involved in building an indicator, based on the conditions specified in the metadata file, which can be found [here](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Metadata?csf=1&web=1&e=loJrNj).
 
 To enable the calculation of **rates, percentages, ratios, life expectancy, and other outcome measures** across various geographic levels and demographic groups, the dataset includes the following key components:
 
@@ -107,7 +109,14 @@ Therefore, proceed to [**Chapter 1: Building Indicators With Pre-defined Denomin
 
 If the population type is **not Census** and there is **no denominator column** in the data source, proceed to [**Chapter 3: Building Indicators with Derived Denominators**.](#chapter3)This chapter is designed for building indicators where the data source is at the patient-level, allowing us to derive the numerator from the dataset. In addition, the denominator can also be derived from the same data source. For example, the **NDA** dataset.
 
-All of these datasets will feed into the **Outcome Framework (OF) dataset**: `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`
+All of these datasets will feed into one of the following destination tables, depending on the data source:
+
+-   `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`: data stored in the warehouse, such as SUS, QOF, NDA, and Mortality.
+-   `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_API_Data]`: data extracted via API, such as Fingertips and CVD Prevent.
+-   `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_Sharepoint_Data]`: data saved in the [Sharepoint](https://birminghamandsolihullccg.sharepoint.com/:f:/r/sites/BirminghamandSolihullIntegratedIntelligenceHub/Shared%20Documents/Outcome%20Framework%20Rebuild/Data?csf=1&web=1&e=QY8rvw) folder, received from external providers or those indicators that are pre-calculated
+-   `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_Other_Data]`: data sourced from locations other than those mentioned above.
+
+These tables are then unioned together into a single staging table for processing and value calculation, which is handled separately from this step.
 
 ## Flowchart {#sec-flowchart}
 
@@ -120,16 +129,16 @@ C{"Denominator column in data?"}
 
 L1(["Chapter 2: Building Indicators without Pre-defined Denominator"])
 L2(["Example(s): SUS, Mortality"])
-L3(["Insert data into final table [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data] with denominator = NULL "])
+L3(["Insert data into destination table with denominator = NULL "])
 L4(["OF dataset"])
 
 M1(["Chapter 1: Building Indicators with Pre-defined Denominator"])
 M2(["Example(s): QOF, CVD Prevent, Fingertips"])
-M3(["Insert data into final table [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data] with denominator populated"])
+M3(["Insert data into destination table with denominator populated"])
 
 R1(["Chapter 3: Building Indicators with Derived Denominator"])
 R2(["Example(s): NDA"])
-R3(["Insert data into final table [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data] with denominator populated"])
+R3(["Insert data into destination table with denominator populated"])
 
 A --> B
 B -- "Yes" --> L1
@@ -188,7 +197,7 @@ We begin by creating two staging tables to store data at different steps:
 
 This table stores the processed indicator data for each required geography level and demographic split. The data will then be used to update the final indicator data table.
 
-It must therefore include all columns defined in the specified data structure of the final table (i.e., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`).
+It must therefore include all columns defined in the specified data structure of the destination table (i.e., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`).
 
 ```{sql}
 #| connection: sql_connection
@@ -427,23 +436,34 @@ Additionally, if the data source contains IMD splits but some rows have missing 
 
 If the data source contains ethnicity splits, extract the values from the `ethnicity` column in the data source and reference them in the temporary GP-level data.
 
-Once you have extracted the Ethnicity column from the data source and inserted it into the GP-level data, you will need map each ethnicity to its corresponding `ethnicity_code`, which is a unique code from the OF reference table below:
+Once you have extracted the `ethnicity` column from the data source and inserted it into the GP-level data, you will need map each ethnicity to its corresponding ethnicity code. Use the number column prefixed `ethnicity_code` that is relevant to your ethnicity breakdown.
+
+For example:
+
+-   Ethnicity breakdowns by **NHS Code** and **Census ethnic group** must use the `ethnicity_code` column.
+
+-   Ethnicity breakdowns for the **main 5 groupings** and **CVD prevent** must use the `ethnicity_code_main` column.
+
+-   Ethnicity breakdowns for **OF groupings** must use the `ethnicity_code_OF` column.
 
 ```{sql}
 #| connection: sql_connection
 #| code-fold: true
 #| code-summary: "Show code"
 #| eval: false
-SELECT TOP (1000) [ethnicity_code]
+SELECT TOP (1000) 
+       [ethnicity_code]
       ,[nhs_code]
       ,[nhs_code_definitions]
       ,[census_ethnic_group]
       ,[definitions]
+      ,[ethnicity_code_main]
       ,[main5_code]
       ,[main5]
+      ,[cvd_prevent_grouping]
+      ,[ethnicity_code_OF]
       ,[OF_code]
       ,[OF_grouping11]
-      ,[cvd_prevent_grouping]
   FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity]
 ```
 
@@ -681,7 +701,82 @@ GROUP BY
     
 ```
 
-Note that the `geography` column now contains PCN codes.
+Note that the `aggregation_id` column now contains PCN codes. These codes will be mapped to their corresponding ids at a later step. 
+
+## Build Locality registered-level data {#ch1-sec-build-locality-reg-level-data}
+
+Use the temporary GP-level data and aggregate it to the locality registered data by grouping on the required columns.
+
+Then, insert the aggregated data into the staging processed indicator data table created in [Step 3.1.1](#ch1-sec-staging-table-for-processed-indicator-data).
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*=================================================================================================
+ Locality registered-level data
+=================================================================================================*/
+INSERT INTO #staging_QOF_data
+(
+    indicator_id,
+    start_date,
+    end_date,
+    numerator,
+    denominator,
+    indicator_value,
+    lower_ci95,
+    upper_ci95,
+    imd_code,
+    aggregation_id,
+    age_group_code,
+    sex_code,
+    ethnicity_code,
+    creation_date,
+    value_type_code,
+    source_code
+)
+SELECT
+     indicator_id
+    ,start_date
+    ,end_date
+    ,SUM(numerator)           AS numerator
+    ,SUM(denominator)         AS denominator
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code                 -- All IMD
+    ,T2.Locality                 AS aggregation_id   -- map to aggregation_id later
+    ,age_group_code           -- All ages
+    ,sex_code                 -- All persons
+    ,ethnicity_code           -- All ethnicities
+    ,creation_date
+    ,value_type_code          -- Percentage
+    ,source_code              -- SQL
+FROM #gp_data T1
+LEFT JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
+ON T1.gp_practice_code = T2.GPPracticeCode_Original
+WHERE T2.locality<>'Not applicable'
+GROUP BY
+     indicator_id
+    ,start_date
+    ,end_date
+    ,indicator_value
+    ,lower_ci95
+    ,upper_ci95
+    ,imd_code
+    ,T2.Locality
+    ,age_group_code
+    ,sex_code
+    ,ethnicity_code
+    ,creation_date
+    ,value_type_code
+    ,source_code;
+    
+```
+
+Note that the `aggregation_id` column now contains Locality registered from the practice mapping table `EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped`. We will map each locality label to its corresponding id at a later step. 
 
 ## Build ICB-level data {#ch1-sec-build-icb-level-data}
 
@@ -755,7 +850,7 @@ Note that the `geography` column now contains the BSOL ICB code (E38000258).
 
 ## Update geography {#ch1-sec-update-geography}
 
-Update the `geography` column in the staging processed indicator data table to ensure that it uses the `aggregation_id` from the following reference table:
+Update the `aggregation_id` column in the staging processed indicator data table to ensure that it uses the `aggregation_id` from the following reference table:
 
 ```{sql}
 #| connection: sql_connection
@@ -780,18 +875,27 @@ FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography]
 /*=================================================================================================
 Map geography codes to aggregation_id
 =================================================================================================*/
+-- PCN and ICB
 UPDATE T1
 SET T1.[aggregation_id] = T2.[aggregation_id]
 FROM #staging_QOF_data AS T1
 JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
   ON T1.[aggregation_id] = T2.[aggregation_code];
+
+-- Locality registered
+UPDATE T1
+SET T1.[aggregation_id] = T2.[aggregation_id]
+FROM #staging_QOF_data AS T1
+JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
+  ON T1.[aggregation_id] = T2.[aggregation_label] -- map based on labels instead
+WHERE T2.[aggregation_type] = 'Locality (registered)'
 ```
 
-When updating the `geography` column, the **`aggregation_id`** can be obtained by joining data based on the aggregation type (PCN or ICB) and the aggregation code (PCN or ICB code).
+When updating the `aggregation_id` column, the **`aggregation_id`** can be obtained by joining data based on the aggregation type (PCN, ICB, or Locality (registered)) and/or the aggregation code (PCN or ICB code).
 
-## Update final table {#ch1-sec-update-final-table}
+## Update destination table {#ch1-sec-update-final-table}
 
-Delete the old indicator data from the final table `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]` before re-inserting new data to ensure that only the latest data is in the table.
+Insert the data into the destination table (e.g., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data])`. There is no need to remove old data, as each record has a creation date, and we will select the latest data during processing.
 
 ```{sql}
 #| connection: sql_connection
@@ -800,10 +904,8 @@ Delete the old indicator data from the final table `[EAT_Reporting_BSOL].[OF].[O
 #| eval: false
 
 /*=================================================================================================
-Insert data into final table
+Insert data into destination table
 =================================================================================================*/
-DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
-WHERE indicator_id = 1;
 
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 (
@@ -857,9 +959,9 @@ Metadata checklist:
 
 -   Populate the empty fields
 
--    Review and update links (some broken because of change of URL in the website)
+-   Review and update links (some broken because of change of URL in the website)
 
--   Review caveat for updates from fingertips for instance 
+-   Review caveat for updates from fingertips for instance
 
 -   Review status of indicator as some might have changed
 
@@ -941,7 +1043,7 @@ CREATE TABLE            #BSOL_OF_tbStaging_NumeratorData
 
 This table will store the processed indicator data for each required geography level and demographic split, which will subsequently be used to update the final indicator data table.
 
-It must therefore include all columns defined in the specified data structure of the final table (i.e., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`).
+It must therefore include all columns defined in the specified data structure of the destination table (i.e., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`).
 
 ```{sql}
 #| connection: sql_connection
@@ -1327,7 +1429,7 @@ Use the reference table below to map LSOA 21 to Locality (resident), and update 
 #| code-summary: "Show code"
 #| eval: false
 
-SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Constituency_2025_Locality] 
+SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_Ward_2025_LAD_25]
 ```
 
 ```{sql}
@@ -1336,13 +1438,13 @@ SELECT TOP 1000 * FROM [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Const
 #| code-summary: "Show example"
 #| eval: false
 
-UPDATE      T1
-SET         T1.[locality_res]   = T2.[Locality]
+UPDATE		T1
+SET			  T1.[locality_res]	= T2.[Locality]
 
-FROM        #BSOL_OF_tbStaging_NumeratorData T1
+FROM		#BSOL_OF_tbStaging_NumeratorData T1
 
-INNER JOIN  [EAT_Reporting_BSOL].[Reference].[LSOA_2021_BSOL_to_Constituency_2025_Locality] T2
-ON          T1.[lsoa_2021] = T2.[LSOA21CD] 
+INNER JOIN	[EAT_Reporting_BSOL].[Reference].[LSOA_2021_Ward_2025_LAD_25] T2
+ON		  	T1.[lsoa_2021] = T2.[LSOA21CD] 
 ```
 
 ### IMD {#ch2-sec-imd}
@@ -1486,6 +1588,16 @@ FROM        #BSOL_OF_tbStaging_NumeratorData T1
 ### Ethnicity {#ch2-update-columns-sec-ethnicity}
 
 Use the reference table below to map each ethnicity to its code, and update the `ethnicity_code` column in the numerator dataset (`#BSOL_OF_tbStaging_NumeratorData`) accordingly.
+
+Use the number column prefixed `ethnicity_code` relevant to your ethnicity breakdown.
+
+For example:
+
+-   Ethnicity breakdowns by **NHS Code** and **Census ethnic group** must use the `ethnicity_code` column.
+
+-   Ethnicity breakdowns for the **main 5 groupings** and **CVD prevent** must use the `ethnicity_code_main` column.
+
+-   Ethnicity breakdowns for **OF groupings** must use the `ethnicity_code_OF` column.
 
 ```{sql}
 #| connection: sql_connection
@@ -1878,7 +1990,7 @@ This step enables calculation of rates or other value types by Ethnicity only.
 
 Get all the columns from the staging processed indicator data and assign '999' code to the `imd_code` column, which corresponds to 'All (Persons)' category.
 
-Save the data in a temporary table so that it can later be joined together with the other processed indicator data before inserting them into the final table.
+Save the data in a temporary table so that it can later be joined together with the other processed indicator data before inserting them into the destination table.
 
 ```{sql}
 #| connection: sql_connection
@@ -1930,7 +2042,7 @@ This step enables calculation of rates or other value types by IMD only.
 
 Get all the columns from the staging processed indicator data and assign '999' code to the `ethnicity_code` column, which corresponds to 'All (Persons)' category.
 
-Save the data in a temporary table so that it can later be joined together with the other processed indicator data before inserting them into the final table.
+Save the data in a temporary table so that it can later be joined together with the other processed indicator data before inserting them into the destination table.
 
 ```{sql}
 #| connection: sql_connection
@@ -1976,20 +2088,17 @@ GROUP BY
 
 ```
 
-## Insert data into final table {#ch2-sec-insert-data-into-final-table}
+## Insert data into destination table {#ch2-sec-insert-data-into-final-table}
 
-Ensure to delete the old data from the final table before re-inserting new data.
+Union all datasets (i.e., from tables created in [Step 4.7](#ch2-sec-insert-data-into-staging-table), [Step 4.8](#ch2-sec-create-dataset-with-imd-collapsed-to-all), and [Step 4.9](#ch2-sec-create-dataset-with-ethnicity-collapsed-to-all)) and insert them into the destination table (e.g., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data])`.
 
-Union all datasets (i.e., from tables created in [Step 4.7](#ch2-sec-insert-data-into-staging-table), [Step 4.8](#ch2-sec-create-dataset-with-imd-collapsed-to-all), and [Step 4.9](#ch2-sec-create-dataset-with-ethnicity-collapsed-to-all)) and insert them into the final table.
+There is no need to remove old data, as each record has a creation date, and we will select the latest data during processing.
 
 ```{sql}
 #| connection: sql_connection
 #| code-fold: true
 #| code-summary: "Show example"
 #| eval: false
-
-DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
-WHERE indicator_id = 10
 
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 SELECT * FROM (
@@ -2013,7 +2122,7 @@ Metadata checklist:
 
 -   Populate the empty fields
 
--    Review and update links (some broken because of change of URL in the website)
+-   Review and update links (some broken because of change of URL in the website)
 
 -   Review caveat for updates from fingertips for instance 
 
@@ -2145,7 +2254,7 @@ INNER JOIN   EAT_Reporting_BSOL.Demographic.Ethnicity AS T2
 
 ### Aggregate numerator {#ch3-sec-aggregate-numerator}
 
-Aggregate the numerator dataset to obtain total numerators across the extracted columns. At this point, you will have a GP-level aggregated dataset (no longer at patient-level), which will later be combined with the denominator dataset before finalising the final table.
+Aggregate the numerator dataset to obtain total numerators across the extracted columns. At this point, you will have a GP-level aggregated dataset (no longer at patient-level), which will later be combined with the denominator dataset before finalising the destination table.
 
 ```{sql}
 #| connection: sql_connection
@@ -2257,7 +2366,7 @@ INNER JOIN   EAT_Reporting_BSOL.Demographic.Ethnicity AS T2
 
 ### Aggregate denominator {#ch3-sec-aggregate-denominator}
 
-Aggregate the denominator dataset to obtain total denominators across the extracted columns. At this point, you will have a GP-level aggregated dataset (no longer at patient-level), which will later be combined with the numerator dataset before finalising the final table.
+Aggregate the denominator dataset to obtain total denominators across the extracted columns. At this point, you will have a GP-level aggregated dataset (no longer at patient-level), which will later be combined with the numerator dataset before finalising the destination table.
 
 ```{sql}
 #| connection: sql_connection
@@ -2407,7 +2516,15 @@ FROM #combined_dataset AS T1;  -- All persons
 
 ### Ethnicity {#ch3-sec-update-columns-ethnicity}
 
-If your dataset has ethnicity splits, map each ethnicity to its corresponding code using the reference table below:
+If your dataset has ethnicity splits, map each ethnicity to its corresponding code using the reference table below. Use the number column prefixed `ethnicity_code` relevant to your ethnicity breakdown.
+
+For example:
+
+-   Ethnicity breakdowns by **NHS Code** and **Census ethnic group** must use the `ethnicity_code` column.
+
+-   Ethnicity breakdowns for the **main 5 groupings** and **CVD prevent** must use the `ethnicity_code_main` column.
+
+-   Ethnicity breakdowns for **OF groupings** must use the `ethnicity_code_OF` column.
 
 ``` sql
 SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Ethnicity]
@@ -2609,7 +2726,81 @@ SELECT
         ,[value_type_code]   
         ,[source_code]       
 ```
+## Build Locality registered-level data {#ch3-sec-build-locality-reg-level-data}
 
+Next, create a locality registered-level dataset by using the GP-level dataset created in [Step 5.6](##ch3-sec-build-gp-level-data) and grouping the data by the required columns.
+
+Insert this dataset into the staging table created in [Step 5.1](#ch3-sec-creating-staging-table).
+
+Notice that the `T2.[locality]` column from the practice mapping table `EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped` serves the aggregation level for this dataset.This column will later be updated to use the aggregation IDs from the OF geography reference table instead of the labels.
+
+```{sql}
+#| connection: sql_connection
+#| code-fold: true
+#| code-summary: "Show example"
+#| eval: false
+
+/*======================================================================================================
+STEP 12: Create locality registered-level dataset
+=======================================================================================================*/
+INSERT INTO #staging_NDA_data (
+        [indicator_id]
+       ,[start_date]
+       ,[end_date]
+       ,[numerator]
+       ,[denominator]
+       ,[indicator_value]
+       ,[lower_ci95]
+       ,[upper_ci95] 
+       ,[imd_code] 
+       ,[aggregation_id] 
+       ,[age_group_code] 
+       ,[sex_code] 
+       ,[ethnicity_code] 
+       ,[creation_date] 
+       ,[value_type_code] 
+       ,[source_code]
+       )
+
+SELECT  
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,sum(numerator) as numerator
+        ,sum(denominator) as denominator
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]           -- All IMD
+        ,T2.[Locality]        -- Will map it to aggregation id later
+        ,[age_code]           -- All Ages
+        ,[sex_code]           -- All Persons 
+        ,[ethnicity_code]     
+        ,[creation_date]
+        ,[value_type_code]         -- Percentage
+        ,[source_code]             -- SQL
+		
+ FROM  #gp_data T1
+ LEFT JOIN EAT_Reporting_BSOL.Reference.BSOL_ICS_PracticeMapped T2
+ ON T1.gp_practice_code = T2.GPPracticeCode_Original
+ WHERE T2.locality<>'Not applicable'
+ GROUP BY    
+         [indicator_id]
+        ,[start_date]
+        ,[end_date]
+        ,[indicator_value] 
+        ,[lower_ci95]
+        ,[upper_ci95] 
+        ,[imd_code]          
+        ,T2.[Locality]          
+        ,[age_code]     
+        ,[sex_code]          
+        ,[ethnicity_code]    
+        ,[creation_date]
+        ,[value_type_code]   
+        ,[source_code]       
+       
+```
 ## Build ICB-level data {#ch3-sec-build-icb-level-data}
 
 Next, create an ICB-level dataset by using the GP-level dataset created in [Step 5.6](##ch3-sec-build-gp-level-data) and grouping the data by the required columns.
@@ -2625,7 +2816,7 @@ Insert this dataset into the staging table created in [Step 5.1](#ch3-sec-creati
 #| eval: false
 
 /*=======================================================================================================
-STEP 12: Create ICB-level dataset
+STEP 13: Create ICB-level dataset
 =======================================================================================================*/
 
 INSERT INTO #staging_NDA_data (
@@ -2700,20 +2891,28 @@ This ensures that the processed indicator data uses standardised codes and a con
 #| eval: false
 
 /*=======================================================================================================
-STEP 13: Map geography codes to aggregation_id
+STEP 14: Map geography codes to aggregation_id
 =======================================================================================================*/
+--PCN and ICB
+
 UPDATE T1
 SET    T1.[aggregation_id] = T2.[aggregation_id]
 FROM   #staging_NDA_data AS T1
 JOIN   [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
        ON T1.[aggregation_id] = T2.[aggregation_code];
+
+-- Locality registered
+UPDATE T1
+SET T1.[aggregation_id] = T2.[aggregation_id]
+FROM #staging_NDA_data AS T1
+JOIN [EAT_Reporting_BSOL].[OF].[OF2_Reference_Geography] AS T2
+  ON T1.[aggregation_id] = T2.[aggregation_label] -- map based on labels instead
+WHERE T2.[aggregation_type] = 'Locality (registered)'
 ```
 
-## Insert data into final table {#ch3-sec-insert-data-into-final-table}
+## Insert data into destination table {#ch3-sec-insert-data-into-final-table}
 
-First, delete the old data from the final table before inserting the new data.
-
-Then, insert the data into `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`.
+Insert the data into the destination table (e.g., `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data])`. There is no need to remove old data, as each record has a creation date, and we will select the latest data during processing.
 
 ```{sql}
 #| connection: sql_connection
@@ -2722,11 +2921,8 @@ Then, insert the data into `[EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]`.
 #| eval: false
 
 /*=======================================================================================================
-STEP 14: Load into final table
+STEP 15: Load into destination table
 =======================================================================================================*/
-DELETE FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
-WHERE indicator_id = 35;
-
 INSERT INTO [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 (
          [indicator_id]
@@ -2763,7 +2959,7 @@ Metadata checklist:
 
 -   Populate the empty fields
 
--    Review and update links (some broken because of change of URL in the website)
+-   Review and update links (some broken because of change of URL in the website)
 
 -   Review caveat for updates from fingertips for instance 
 
@@ -2806,7 +3002,7 @@ SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
 
 ```
 
-## Final tables {#sec-final-tables}
+## Destination tables {#sec-final-tables}
 
 -   Processed indicator data from warehouse
 
@@ -2816,7 +3012,7 @@ SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
     #| code-summary: "Show code"
     #| eval: false
 
-    -- Final table for the processed indicator data extracted from warehouse
+    -- destination table for the processed indicator data extracted from warehouse
     SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_SQL_Data]
 
     ```
@@ -2829,7 +3025,7 @@ SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
     #| code-summary: "Show code"
     #| eval: false
 
-    -- Final table for the processed indicator data extracted from API
+    -- destination table for the processed indicator data extracted from API
     SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_API_Data]
 
     ```
@@ -2842,7 +3038,7 @@ SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
     #| code-summary: "Show code"
     #| eval: false
 
-    -- Final table for the processed indicator data extracted from Sharepoint
+    -- destination table for the processed indicator data extracted from Sharepoint
     SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_Sharepoint_Data]
     ```
 
@@ -2854,7 +3050,7 @@ SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Reference_Value_Type]
     #| code-summary: "Show code"
     #| eval: false
 
-    -- Final table for the processed indicator data extracted from other sources
+    -- destination table for the processed indicator data extracted from other sources
     SELECT * FROM [EAT_Reporting_BSOL].[OF].[OF2_Indicator_Other_Data]
     ```
 
