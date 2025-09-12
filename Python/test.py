@@ -80,3 +80,19 @@ print(f"Download took {end_time - start_time:.2f} seconds")
 today_date = datetime.now().strftime('%Y%m%d')
 
 data.to_csv(f'./data/test_data_{today_date}.csv', index=False)
+
+# Write to SQL Server
+table_name = 'BSOL_0033_Fingertips_API_download'
+schema_name = 'Development'
+
+try:
+    data.to_sql(
+        name=table_name,
+        con=engine,
+        schema=schema_name,
+        if_exists='replace',  # or 'append' depending on your use case
+        index=False
+    )
+    print(f"Data successfully written to [{schema_name}].[{table_name}]")
+except Exception as e:
+    print(f"Error writing to SQL Server: {e}")
